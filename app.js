@@ -1,11 +1,19 @@
 'use strict';
 
-const STORAGE_KEY = 'garantijos_v1';
-const CATEGORIES = ['Elektronika', 'Buitinė technika', 'Avalynė / drabužiai', 'Baldai', 'Automobiliai', 'Kita'];
+const STORAGE_KEY    = 'garantijos_v1';
+const AUTH_KEY       = 'garantijos_session';
+const PWD_HASH_KEY   = 'garantijos_pwd_hash';
+const BRUTE_KEY      = 'garantijos_brute';
+const WORKER_URL     = 'https://muddy-sea-0563.ignas7206.workers.dev';
+const CATEGORIES     = ['Elektronika', 'Buitinė technika', 'Avalynė / drabužiai', 'Baldai', 'Automobiliai', 'Kita'];
+const ALLOWED_MIME   = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+const MAX_IMG_BYTES  = 4 * 1024 * 1024; // 4MB
+const MAX_ATTEMPTS   = 5;
+const LOCKOUT_MS     = 5 * 60 * 1000; // 5 min
 
 // ── State ──────────────────────────────────────────────────────────────────
 let state = {
-  view: 'list',       // list | add | detail
+  view: 'list',
   items: [],
   selected: null,
   search: '',
@@ -14,10 +22,109 @@ let state = {
   form: emptyForm(),
   imagePreview: null,
   analyzing: false,
+  authenticated: false,
+  pwdError: '',
+  imgError: '',
 };
 
 function emptyForm() {
   return { name: '', category: 'Elektronika', purchaseDate: '', warrantyEnd: '', shop: '', notes: '', imageData: null };
+}
+
+// ── SHA-256 ────────────────────────────────────────────────────────────────
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// Session token – random hex stored in sessionStorage (clears on tab close)
+function genToken() {
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// ── Brute-force protection ─────────────────────────────────────────────────
+function getBrute() {
+  try { return JSON.parse(localStorage.getItem(BRUTE_KEY)) || { attempts: 0, lockedUntil: 0 }; }
+  catch { return { attempts: 0, lockedUntil: 0 }; }
+}
+function setBrute(b) { localStorage.setItem(BRUTE_KEY, JSON.stringify(b)); }
+function resetBrute() { localStorage.removeItem(BRUTE_KEY); }
+
+function bruteStatus() {
+  const b = getBrute();
+  const now = Date.now();
+  if (b.lockedUntil > now) {
+    const secs = Math.ceil((b.lockedUntil - now) / 1000);
+    return { locked: true, secs };
+  }
+  return { locked: false, attempts: b.attempts };
+}
+
+// ── Auth ───────────────────────────────────────────────────────────────────
+async function checkAuth() {
+  const savedHash = localStorage.getItem(PWD_HASH_KEY);
+  if (!savedHash) return; // no password set yet
+  const token = sessionStorage.getItem(AUTH_KEY);
+  const tokenHash = localStorage.getItem(AUTH_KEY + '_hash');
+  if (token && tokenHash && await sha256(token) === tokenHash) {
+    state.authenticated = true;
+  }
+}
+
+async function tryLogin(password) {
+  const bs = bruteStatus();
+  if (bs.locked) { state.pwdError = `Per daug bandymų. Palaukite ${bs.secs}s.`; render(); return; }
+
+  if (!password) { state.pwdError = 'Įveskite slaptažodį'; render(); return; }
+
+  const savedHash = localStorage.getItem(PWD_HASH_KEY);
+
+  // First time – create password
+  if (!savedHash) {
+    if (password.length < 6) { state.pwdError = 'Slaptažodis per trumpas (min. 6 simboliai)'; render(); return; }
+    const hash = await sha256(password);
+    localStorage.setItem(PWD_HASH_KEY, hash);
+    await createSession();
+    return;
+  }
+
+  // Verify password
+  const hash = await sha256(password);
+  if (hash === savedHash) {
+    resetBrute();
+    await createSession();
+  } else {
+    const b = getBrute();
+    b.attempts = (b.attempts || 0) + 1;
+    if (b.attempts >= MAX_ATTEMPTS) {
+      b.lockedUntil = Date.now() + LOCKOUT_MS;
+      b.attempts = 0;
+      state.pwdError = `Per daug bandymų. Užblokuota 5 minutėms.`;
+    } else {
+      state.pwdError = `Neteisingas slaptažodis (${b.attempts}/${MAX_ATTEMPTS} bandymų)`;
+    }
+    setBrute(b);
+    render();
+  }
+}
+
+async function createSession() {
+  const token = genToken();
+  const tokenHash = await sha256(token);
+  sessionStorage.setItem(AUTH_KEY, token);
+  localStorage.setItem(AUTH_KEY + '_hash', tokenHash);
+  state.authenticated = true;
+  state.pwdError = '';
+  render();
+}
+
+function logout() {
+  sessionStorage.removeItem(AUTH_KEY);
+  localStorage.removeItem(AUTH_KEY + '_hash');
+  state.authenticated = false;
+  render();
 }
 
 // ── Persist ────────────────────────────────────────────────────────────────
@@ -25,7 +132,9 @@ function load() {
   try { state.items = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { state.items = []; }
 }
 function persist() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.items)); } catch {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.items)); } catch(e) {
+    if (e.name === 'QuotaExceededError') alert('Vieta telefone baigiasi! Ištrinkite kai kurias nuotraukas.');
+  }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -39,28 +148,66 @@ function fmtDate(d) {
 }
 function badgeHtml(days) {
   if (days === null) return '';
-  if (days < 0)  return `<span class="badge badge-exp">Baigėsi</span>`;
+  if (days < 0)   return `<span class="badge badge-exp">Baigėsi</span>`;
   if (days <= 30) return `<span class="badge badge-warn">${days}d. liko</span>`;
   return `<span class="badge badge-ok">${days}d. liko</span>`;
 }
 function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+function safeId(val) {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : null;
+}
 
 // ── Render ─────────────────────────────────────────────────────────────────
 function render() {
   const root = document.getElementById('root');
+  if (!state.authenticated) { root.innerHTML = renderLogin(); attachLoginEvents(); return; }
   if (state.view === 'list')   root.innerHTML = renderList();
   if (state.view === 'add')    root.innerHTML = renderAdd();
   if (state.view === 'detail') root.innerHTML = renderDetail();
   attachEvents();
 }
 
+// ── Login view ─────────────────────────────────────────────────────────────
+function renderLogin() {
+  const isFirst = !localStorage.getItem(PWD_HASH_KEY);
+  const bs = bruteStatus();
+  return `
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px">
+      <div style="width:100%;max-width:320px">
+        <div style="text-align:center;margin-bottom:32px">
+          <div style="font-size:48px;margin-bottom:12px">🛡️</div>
+          <h1 style="font-size:22px;font-weight:600;color:var(--text);margin-bottom:6px">Garantijos</h1>
+          <p style="font-size:14px;color:var(--text2)">${isFirst ? 'Sukurkite slaptažodį' : 'Įveskite slaptažodį'}</p>
+        </div>
+        <div style="background:var(--bg);border:0.5px solid var(--border);border-radius:16px;padding:24px">
+          ${isFirst ? `<p style="font-size:13px;color:var(--text2);margin-bottom:16px;text-align:center">Pirmas paleidimas – nustatykite slaptažodį (min. 6 simboliai)</p>` : ''}
+          <input type="password" id="pwdInput" placeholder="Slaptažodis" autofocus ${bs.locked ? 'disabled' : ''}
+            style="width:100%;box-sizing:border-box;border-radius:10px;border:0.5px solid ${state.pwdError ? 'var(--red)' : 'var(--border2)'};background:var(--bg2);font-size:16px;padding:12px;color:var(--text);margin-bottom:${state.pwdError ? '8px' : '12px'}" />
+          ${state.pwdError ? `<p style="font-size:13px;color:var(--red);margin-bottom:12px;text-align:center">${esc(state.pwdError)}</p>` : ''}
+          <button id="loginBtn" ${bs.locked ? 'disabled' : ''} style="width:100%;background:var(--text);color:var(--bg);border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:500;cursor:${bs.locked ? 'not-allowed' : 'pointer'};opacity:${bs.locked ? '0.5' : '1'}">
+            ${isFirst ? 'Nustatyti slaptažodį' : 'Prisijungti'}
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function attachLoginEvents() {
+  const btn = document.getElementById('loginBtn');
+  const inp = document.getElementById('pwdInput');
+  if (btn) btn.addEventListener('click', () => tryLogin(inp?.value || ''));
+  if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(inp.value); });
+}
+
+// ── List view ──────────────────────────────────────────────────────────────
 function renderList() {
   const { items, search, filterCat, sortBy } = state;
-  const expired    = items.filter(i => { const d = daysLeft(i.warrantyEnd); return d !== null && d < 0; }).length;
-  const expiring   = items.filter(i => { const d = daysLeft(i.warrantyEnd); return d !== null && d >= 0 && d <= 30; }).length;
-  const valid      = items.length - expired;
+  const expired  = items.filter(i => { const d = daysLeft(i.warrantyEnd); return d !== null && d < 0; }).length;
+  const expiring = items.filter(i => { const d = daysLeft(i.warrantyEnd); return d !== null && d >= 0 && d <= 30; }).length;
+  const valid    = items.length - expired;
 
   const filtered = items
     .filter(i => {
@@ -69,9 +216,9 @@ function renderList() {
     })
     .filter(i => filterCat === 'Visos' || i.category === filterCat)
     .sort((a, b) => {
-      if (sortBy === 'name')    return a.name.localeCompare(b.name, 'lt');
+      if (sortBy === 'name')     return a.name.localeCompare(b.name, 'lt');
       if (sortBy === 'expiring') { const da = daysLeft(a.warrantyEnd)??99999, db = daysLeft(b.warrantyEnd)??99999; return da - db; }
-      if (sortBy === 'newest')  return b.id - a.id;
+      if (sortBy === 'newest')   return b.id - a.id;
       return 0;
     });
 
@@ -108,17 +255,17 @@ function renderList() {
   const cardsHtml = filtered.map(item => {
     const days = daysLeft(item.warrantyEnd);
     const thumb = item.imageData
-      ? `<img class="item-thumb" src="${esc(item.imageData)}" alt="" />`
+      ? `<img class="item-thumb" src="${esc(item.imageData)}" alt="" loading="lazy" />`
       : `<div class="item-icon"><i class="ti ti-receipt"></i></div>`;
     return `
-      <div class="item-card" data-id="${item.id}">
+      <div class="item-card" data-id="${esc(String(item.id))}">
         ${thumb}
         <div class="item-info">
           <div class="item-top">
             <span class="item-name">${esc(item.name)}</span>
             ${badgeHtml(days)}
           </div>
-          <div class="item-meta">${esc(item.shop||'')}${item.shop?` · `:''}${esc(item.category)}</div>
+          <div class="item-meta">${esc(item.shop||'')}${item.shop?' · ':''}${esc(item.category)}</div>
           ${item.warrantyEnd ? `<div class="item-date"><i class="ti ti-calendar" style="font-size:12px;margin-right:4px;vertical-align:-1px"></i>Garantija iki ${fmtDate(item.warrantyEnd)}</div>` : ''}
         </div>
       </div>`;
@@ -130,9 +277,12 @@ function renderList() {
         <div class="header-row">
           <div>
             <h1>Mano garantijos</h1>
-            <div class="subtitle">${items.length} daiktas${items.length===1?'':'(-ai)'} išsaugota</div>
+            <div class="subtitle">${items.length} daiktas${items.length===1?'':' (-ai)'} išsaugota</div>
           </div>
-          <button class="btn-primary" id="addBtn"><i class="ti ti-plus"></i> Pridėti</button>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button id="logoutBtn" title="Atsijungti" style="background:none;border:0.5px solid var(--border2);border-radius:8px;padding:7px 9px;cursor:pointer;color:var(--text2)"><i class="ti ti-logout" style="font-size:16px"></i></button>
+            <button class="btn-primary" id="addBtn"><i class="ti ti-plus"></i> Pridėti</button>
+          </div>
         </div>
         ${statsHtml}
         <div class="search-wrap">
@@ -146,6 +296,7 @@ function renderList() {
     </div>`;
 }
 
+// ── Add view ───────────────────────────────────────────────────────────────
 function renderAdd() {
   const f = state.form;
   const imgHtml = state.imagePreview
@@ -159,6 +310,9 @@ function renderAdd() {
   const analyzingHtml = state.analyzing
     ? `<div class="analyzing"><div class="spinner"></div><span style="font-size:13px;color:var(--text2)">AI analizuoja čekį...</span></div>` : '';
 
+  const imgErrHtml = state.imgError
+    ? `<p style="font-size:12px;color:var(--red);margin-top:6px">${esc(state.imgError)}</p>` : '';
+
   const catOptions = CATEGORIES.map(c => `<option${c===f.category?' selected':''}>${esc(c)}</option>`).join('');
 
   return `
@@ -170,50 +324,35 @@ function renderAdd() {
       <div class="form-wrap">
         <div class="field">
           <label>Čekis / sąskaita</label>
-          <label class="img-upload" id="imgUploadLabel">
+          <label class="img-upload">
             ${imgHtml}
-            <input type="file" id="imgInput" accept="image/*" capture="environment" style="display:none" />
+            <input type="file" id="imgInput" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" style="display:none" />
           </label>
+          ${imgErrHtml}
           ${analyzingHtml}
         </div>
-        <div class="field">
-          <label>Pavadinimas *</label>
-          <input type="text" id="f_name" placeholder='pvz. Samsung TV 55"' value="${esc(f.name)}" />
-        </div>
-        <div class="field">
-          <label>Parduotuvė</label>
-          <input type="text" id="f_shop" placeholder="pvz. Pigu.lt, Euronics..." value="${esc(f.shop)}" />
-        </div>
-        <div class="field">
-          <label>Pirkimo data</label>
-          <input type="date" id="f_purchaseDate" value="${esc(f.purchaseDate)}" />
-        </div>
-        <div class="field">
-          <label>Garantija galioja iki</label>
-          <input type="date" id="f_warrantyEnd" value="${esc(f.warrantyEnd)}" />
-        </div>
-        <div class="field">
-          <label>Kategorija</label>
-          <select id="f_category">${catOptions}</select>
-        </div>
-        <div class="field">
-          <label>Pastabos</label>
-          <textarea id="f_notes" rows="3" placeholder="Papildoma informacija...">${esc(f.notes)}</textarea>
-        </div>
+        <div class="field"><label>Pavadinimas *</label><input type="text" id="f_name" placeholder='pvz. Samsung TV 55"' value="${esc(f.name)}" autocomplete="off" /></div>
+        <div class="field"><label>Parduotuvė</label><input type="text" id="f_shop" placeholder="pvz. Pigu.lt, Euronics..." value="${esc(f.shop)}" autocomplete="off" /></div>
+        <div class="field"><label>Pirkimo data</label><input type="date" id="f_purchaseDate" value="${esc(f.purchaseDate)}" /></div>
+        <div class="field"><label>Garantija galioja iki</label><input type="date" id="f_warrantyEnd" value="${esc(f.warrantyEnd)}" /></div>
+        <div class="field"><label>Kategorija</label><select id="f_category">${catOptions}</select></div>
+        <div class="field"><label>Pastabos</label><textarea id="f_notes" rows="3" placeholder="Papildoma informacija...">${esc(f.notes)}</textarea></div>
         <button class="btn-save" id="saveBtn" ${f.name.trim()?'':'disabled'}>Išsaugoti</button>
       </div>
     </div>`;
 }
 
+// ── Detail view ────────────────────────────────────────────────────────────
 function renderDetail() {
-  const item = state.items.find(i => i.id === state.selected) || {};
+  const item = state.items.find(i => i.id === state.selected);
+  if (!item) { state.view = 'list'; render(); return ''; }
   const days = daysLeft(item.warrantyEnd);
 
   let statusBg, statusColor, statusIcon, statusText;
-  if (days === null)      { statusBg='var(--bg2)'; statusColor='var(--text2)'; statusIcon='ti-shield'; statusText='Nenurodyta'; }
-  else if (days < 0)      { statusBg='var(--red-bg)'; statusColor='var(--red)'; statusIcon='ti-shield-x'; statusText='Garantija baigėsi'; }
-  else if (days <= 30)    { statusBg='var(--orange-bg)'; statusColor='var(--orange)'; statusIcon='ti-shield-exclamation'; statusText=`Liko ${days} dienos`; }
-  else                    { statusBg='var(--green-bg)'; statusColor='var(--green)'; statusIcon='ti-shield-check'; statusText=`Liko ${days} dienos`; }
+  if (days === null)   { statusBg='var(--bg2)'; statusColor='var(--text2)'; statusIcon='ti-shield'; statusText='Nenurodyta'; }
+  else if (days < 0)   { statusBg='var(--red-bg)'; statusColor='var(--red)'; statusIcon='ti-shield-x'; statusText='Garantija baigėsi'; }
+  else if (days <= 30) { statusBg='var(--orange-bg)'; statusColor='var(--orange)'; statusIcon='ti-shield-exclamation'; statusText=`Liko ${days} dienos`; }
+  else                 { statusBg='var(--green-bg)'; statusColor='var(--green)'; statusIcon='ti-shield-check'; statusText=`Liko ${days} dienos`; }
 
   const imgHtml = item.imageData
     ? `<img src="${esc(item.imageData)}" alt="Čekis" style="width:100%;border-radius:12px;max-height:240px;object-fit:cover;margin-bottom:16px" />` : '';
@@ -265,30 +404,27 @@ function attachEvents() {
   const on = (id, ev, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); };
   const onAll = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
 
-  // List
-  on('addBtn',    'click', () => { state.form = emptyForm(); state.imagePreview = null; state.view = 'add'; render(); });
-  on('addFirst',  'click', () => { state.form = emptyForm(); state.imagePreview = null; state.view = 'add'; render(); });
+  on('addBtn',      'click', () => { state.form = emptyForm(); state.imagePreview = null; state.imgError = ''; state.view = 'add'; render(); });
+  on('addFirst',    'click', () => { state.form = emptyForm(); state.imagePreview = null; state.imgError = ''; state.view = 'add'; render(); });
   on('searchInput', 'input', e => { state.search = e.target.value; render(); });
+  on('logoutBtn',   'click', () => { if (confirm('Atsijungti?')) logout(); });
+  on('backBtn',     'click', () => { state.view = 'list'; render(); });
+  on('imgInput',    'change', handleImageUpload);
 
   onAll('.filter-chip', 'click', e => { state.filterCat = e.target.dataset.filter; render(); });
   onAll('.sort-chip',   'click', e => { state.sortBy = e.target.dataset.sort; render(); });
   onAll('.item-card',   'click', e => {
-    const id = parseInt(e.currentTarget.dataset.id);
+    const id = safeId(e.currentTarget.dataset.id);
+    if (id === null) return;
     state.selected = id; state.view = 'detail'; render();
   });
-
-  // Add
-  on('backBtn', 'click', () => { state.view = 'list'; render(); });
-  on('imgInput', 'change', handleImageUpload);
 
   ['name','shop','purchaseDate','warrantyEnd','category','notes'].forEach(k => {
     on(`f_${k}`, 'input',  e => { state.form[k] = e.target.value; syncSaveBtn(); });
     on(`f_${k}`, 'change', e => { state.form[k] = e.target.value; syncSaveBtn(); });
   });
 
-  on('saveBtn', 'click', saveItem);
-
-  // Detail
+  on('saveBtn',    'click', saveItem);
   on('deleteBtn',  'click', () => deleteItem(state.selected));
   on('deleteBtn2', 'click', () => deleteItem(state.selected));
 }
@@ -312,6 +448,7 @@ function saveItem() {
   persist();
   state.form = emptyForm();
   state.imagePreview = null;
+  state.imgError = '';
   state.view = 'list';
   render();
 }
@@ -320,25 +457,47 @@ function saveItem() {
 function handleImageUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
+
+  // Validate MIME type
+  if (!ALLOWED_MIME.includes(file.type)) {
+    state.imgError = 'Leidžiami tik JPEG, PNG, WebP, HEIC formatai';
+    render(); return;
+  }
+
+  // Validate size
+  if (file.size > MAX_IMG_BYTES) {
+    state.imgError = `Nuotrauka per didelė (max 4MB, jūsų: ${(file.size/1024/1024).toFixed(1)}MB)`;
+    render(); return;
+  }
+
+  state.imgError = '';
   const reader = new FileReader();
   reader.onload = async ev => {
     const dataUrl = ev.target.result;
-    const base64  = dataUrl.split(',')[1];
-    const mime    = file.type;
-    state.imagePreview = dataUrl;
-    state.form.imageData = dataUrl;
-    state.analyzing = true;
-    render();
-    await analyzeReceipt(base64, mime);
-    state.analyzing = false;
-    render();
+    // Double-check it's a real image by trying to load it
+    const img = new Image();
+    img.onload = async () => {
+      const base64 = dataUrl.split(',')[1];
+      state.imagePreview = dataUrl;
+      state.form.imageData = dataUrl;
+      state.analyzing = true;
+      render();
+      await analyzeReceipt(base64, file.type);
+      state.analyzing = false;
+      render();
+    };
+    img.onerror = () => {
+      state.imgError = 'Failas neatpažintas kaip nuotrauka';
+      render();
+    };
+    img.src = dataUrl;
   };
   reader.readAsDataURL(file);
 }
 
 async function analyzeReceipt(base64, mimeType) {
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -349,28 +508,24 @@ async function analyzeReceipt(base64, mimeType) {
           content: [
             { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
             { type: 'text', text: `Tai yra pirkimo čekis arba sąskaita. Ištraukite informaciją ir grąžinkite TIK JSON (be paaiškinimų, be markdown):
-{
-  "name": "produkto pavadinimas",
-  "shop": "parduotuvė",
-  "purchaseDate": "YYYY-MM-DD arba null",
-  "price": "kaina su valiuta arba null",
-  "notes": "trumpas aprašymas"
-}
+{"name":"produkto pavadinimas","shop":"parduotuvė","purchaseDate":"YYYY-MM-DD arba null","price":"kaina su valiuta arba null","notes":"trumpas aprašymas"}
 Jei informacijos nėra – naudokite null.` }
           ]
         }]
       })
     });
+    if (!res.ok) throw new Error(`Worker klaida: ${res.status}`);
     const data = await res.json();
     const text  = (data.content || []).map(c => c.text || '').join('');
     const clean = text.replace(/```json|```/g, '').trim();
-    const p     = JSON.parse(clean);
-    if (p.name)         state.form.name         = p.name;
-    if (p.shop)         state.form.shop         = p.shop;
-    if (p.purchaseDate) state.form.purchaseDate = p.purchaseDate;
-    if (p.price || p.notes) {
-      state.form.notes = [p.price ? `Kaina: ${p.price}` : '', p.notes || ''].filter(Boolean).join('\n');
-    }
+    const p = JSON.parse(clean);
+    // Only accept string values, not arbitrary objects
+    if (p.name && typeof p.name === 'string')         state.form.name = p.name.slice(0, 200);
+    if (p.shop && typeof p.shop === 'string')         state.form.shop = p.shop.slice(0, 100);
+    if (p.purchaseDate && typeof p.purchaseDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.purchaseDate))
+      state.form.purchaseDate = p.purchaseDate;
+    const notesParts = [p.price ? `Kaina: ${String(p.price).slice(0,50)}` : '', typeof p.notes === 'string' ? p.notes.slice(0,500) : ''].filter(Boolean);
+    if (notesParts.length) state.form.notes = notesParts.join('\n');
   } catch (err) {
     console.warn('AI analizė nepavyko:', err);
   }
@@ -378,4 +533,4 @@ Jei informacijos nėra – naudokite null.` }
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 load();
-render();
+checkAuth().then(() => render());
