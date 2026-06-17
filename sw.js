@@ -1,5 +1,13 @@
-const CACHE = 'garantijos-v1';
-const ASSETS = ['/', '/index.html', '/app.js', '/manifest.json', '/icon-192.png', '/icon-512.png'];
+const CACHE = 'garantijos-v3';
+const BASE = '/Garantija';
+const ASSETS = [
+  BASE + '/',
+  BASE + '/index.html',
+  BASE + '/app.js',
+  BASE + '/manifest.json',
+  BASE + '/icon-192.png',
+  BASE + '/icon-512.png',
+];
 
 self.addEventListener('install', e => {
   e.waitUntil(
@@ -18,8 +26,11 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  if (e.request.url.includes('api.anthropic.com')) return;
+  if (e.request.url.includes('api.anthropic.com') ||
+      e.request.url.includes('workers.dev')) return;
   e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request).catch(() => caches.match('/index.html')))
+    caches.match(e.request).then(cached =>
+      cached || fetch(e.request).catch(() => caches.match(BASE + '/index.html'))
+    )
   );
 });
