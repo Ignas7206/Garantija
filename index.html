@@ -11,6 +11,7 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icon-192.png" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <title>Garantijos</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -301,6 +302,16 @@
     /* ── Long-press hint pulse on add button ── */
     @keyframes addPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(28,110,242,0.3);} 50% { box-shadow: 0 0 0 6px rgba(28,110,242,0);} }
     .nav-add-circle.pulse { animation: addPulse 1.6s ease-out 2; }
+
+    /* ── QR scanner ── */
+    .qr-scanner { position: fixed; inset: 0; z-index: 350; background: #000; display: flex; flex-direction: column; }
+    .qr-scanner video { flex: 1; object-fit: cover; width: 100%; }
+    .qr-scanner-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 240px; height: 240px; border: 2px solid #fff; border-radius: 16px; box-shadow: 0 0 0 2000px rgba(0,0,0,0.5); }
+    .qr-scanner-bar { position: absolute; top: calc(var(--safe-top) + 12px); left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: center; z-index: 2; }
+    .qr-scanner-bar .back-btn { background: rgba(255,255,255,0.15); color: #fff; }
+    .qr-scanner-hint { position: absolute; bottom: calc(var(--safe-bottom) + 24px); left: 0; right: 0; text-align: center; color: #fff; font-size: 14px; padding: 0 32px; z-index: 2; }
+    .qr-link-btn { background: var(--bg2); border: none; border-radius: var(--radius-sm); padding: 10px 14px; display: flex; align-items: center; gap: 8px; width: 100%; margin-bottom: 14px; color: var(--text); font-size: 13px; font-weight: 500; }
+    .qr-link-btn i { font-size: 18px; color: var(--accent); }
   </style>
 </head>
 <body>

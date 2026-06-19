@@ -2,7 +2,8 @@
 import { auth, db, storage } from './firebase-config.js';
 import {
   createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut,
-  onAuthStateChanged, sendPasswordResetEmail, sendEmailVerification
+  onAuthStateChanged, sendPasswordResetEmail, sendEmailVerification,
+  GoogleAuthProvider, signInWithPopup
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy,
@@ -36,6 +37,8 @@ let state = {
   showOnboarding: !localStorage.getItem('garantijos_onboarded'),
   swipe: { id:null, startX:0, currentX:0, dragging:false },
   addPulse: false,
+  qrScanning: false, qrStream: null,
+  policyChecking: false, policyResult: null, policyResultFor: null,
 };
 
 function emptyForm(){return{name:'',category:'Elektronika',shop:'',purchaseDate:today(),warrantyEnd:addMonths(today(),24),warrantyMonths:24,docType:'Kvitas / čekis',docNumber:'',notes:'',docData:null,docMime:null,docFileName:null,docStoragePath:null,notifyEnabled:true};}
@@ -80,20 +83,37 @@ function friendlyAuthError(code){
 // ── Auth ───────────────────────────────────────────────────────────────────
 onAuthStateChanged(auth, async (user)=>{
   state.booted=true;
-  if(user && !user.emailVerified){
-    // allow usage but show banner; Firebase still treats them as authenticated
-  }
   state.user=user;
   if(user){
     await ensureUserDoc(user);
     attachItemsListener(user.uid);
+    startEmailVerifyPoll(user);
   }else{
     if(state.itemsUnsub){state.itemsUnsub();state.itemsUnsub=null;}
     state.items=[];
     state.userDoc=null;
+    stopEmailVerifyPoll();
   }
   render();
 });
+
+let verifyPollTimer=null;
+function startEmailVerifyPoll(user){
+  stopEmailVerifyPoll();
+  if(user.emailVerified)return;
+  verifyPollTimer=setInterval(async ()=>{
+    try{
+      await user.reload();
+      if(user.emailVerified){
+        state.user = auth.currentUser;
+        stopEmailVerifyPoll();
+        toast('El. paštas patvirtintas ✓');
+        render();
+      }
+    }catch(e){}
+  }, 5000);
+}
+function stopEmailVerifyPoll(){ if(verifyPollTimer){clearInterval(verifyPollTimer);verifyPollTimer=null;} }
 
 async function ensureUserDoc(user){
   const ref_ = doc(db,'users',user.uid);
@@ -148,12 +168,36 @@ async function doLogin(email,pwd){
   catch(e){ state.authError=friendlyAuthError(e.code); }
   state.authBusy=false;render();
 }
+async function doGoogleLogin(){
+  state.authError='';state.authInfo='';state.authBusy=true;render();
+  try{
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
+  }catch(e){
+    if(e.code!=='auth/popup-closed-by-user' && e.code!=='auth/cancelled-popup-request'){
+      state.authError=friendlyAuthError(e.code);
+    }
+  }
+  state.authBusy=false;render();
+}
 async function doReset(email){
   state.authError='';state.authInfo='';
   if(!email){state.authError='Įveskite el. paštą';render();return;}
   state.authBusy=true;render();
   try{ await sendPasswordResetEmail(auth,email); state.authInfo='Slaptažodžio atstatymo nuoroda išsiųsta į el. paštą'; }
   catch(e){ state.authError=friendlyAuthError(e.code); }
+  state.authBusy=false;render();
+}
+async function resendVerification(){
+  if(!state.user||state.authBusy)return;
+  state.authBusy=true;render();
+  try{
+    await sendEmailVerification(state.user);
+    state.authInfo='Laiškas išsiųstas dar kartą. Patikrinkite Spam aplanką.';
+    toast('Patvirtinimo laiškas išsiųstas ✓');
+  }catch(e){
+    toast('Klaida siunčiant laišką, bandykite vėliau');
+  }
   state.authBusy=false;render();
 }
 async function doLogout(){
@@ -168,6 +212,7 @@ function render(){
   const nav=document.getElementById('bottomNav');
 
   if(!state.booted){ scr.innerHTML='<div class="center-loader"><div class="spinner"></div></div>'; nav.style.display='none'; return; }
+  if(state.qrScanning){ scr.innerHTML=renderQrScanner(); nav.style.display='none'; document.getElementById('qrCloseBtn')?.addEventListener('click',stopQrScanner); return; }
   if(state.lightbox){scr.innerHTML=renderLightbox();nav.style.display='none';attachLightboxEvents();return;}
   if(!state.user){
     if(state.showOnboarding){ scr.innerHTML=renderOnboarding(); nav.style.display='none'; attachOnboardingEvents(); return; }
@@ -251,6 +296,12 @@ function renderAuth(){
   return`<div class="login-wrap"><div class="login-card">
     <div class="login-logo"><span class="shield">🛡️</span><h1>Garantijos</h1><p>${m==='register'?'Susikurkite paskyrą':m==='reset'?'Atstatykite slaptažodį':'Prisijunkite'}</p></div>
 
+    ${m!=='reset'?`<button id="googleBtn" class="login-btn" style="background:var(--bg3);color:var(--text);display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px" ${state.authBusy?'disabled':''}>
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.12-.84 2.07-1.79 2.71v2.26h2.9c1.7-1.56 2.68-3.87 2.68-6.61z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.81.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33C2.44 15.98 5.48 18 9 18z"/><path fill="#FBBC05" d="M3.95 10.7c-.18-.54-.28-1.11-.28-1.7s.1-1.16.28-1.7V4.97H.96A8.99 8.99 0 0 0 0 9c0 1.45.35 2.83.96 4.03l2.99-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.97l2.99 2.33C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+      Tęsti su Google
+    </button>
+    <div class="login-divider">arba</div>`:''}
+
     <input type="email" id="authEmail" class="login-input" placeholder="El. paštas" autocomplete="email" />
     ${m!=='reset'?`<input type="password" id="authPwd" class="login-input" placeholder="Slaptažodis" autocomplete="${m==='register'?'new-password':'current-password'}" />`:''}
     ${m==='register'?`<input type="password" id="authPwd2" class="login-input" placeholder="Pakartokite slaptažodį" autocomplete="new-password" />`:''}
@@ -272,6 +323,7 @@ function renderAuth(){
 }
 function attachAuthEvents(){
   const e1=document.getElementById('authEmail'),p1=document.getElementById('authPwd'),p2=document.getElementById('authPwd2');
+  document.getElementById('googleBtn')?.addEventListener('click',doGoogleLogin);
   document.getElementById('authSubmit')?.addEventListener('click',()=>{
     const email=e1?.value.trim()||'';
     if(state.authMode==='register') doRegister(email,p1?.value||'',p2?.value||'');
@@ -311,6 +363,12 @@ function renderList(){
     <i class="ti ti-crown"></i>
     <div class="pb-text"><b>${items.length}/${FREE_LIMIT}</b> nemokamų įrašų panaudota</div>
     <button id="upgradeBtn">Premium</button>
+  </div>`:'';
+
+  const verifyBanner = !state.user.emailVerified ? `<div class="plan-banner" style="background:var(--accent-bg)">
+    <i class="ti ti-mail-exclamation" style="color:var(--accent)"></i>
+    <div class="pb-text" style="color:var(--accent)">Patvirtinkite el. paštą, kad galėtumėte naudoti AI analizę. ${state.authInfo&&state.authInfo.includes('iš naujo')?esc(state.authInfo):'Patikrinkite Spam aplanką.'}</div>
+    <button id="resendVerifyBtn" style="background:var(--accent)" ${state.authBusy?'disabled':''}>${state.authBusy?'...':'Siųsti dar kartą'}</button>
   </div>`:'';
 
   const chips=['Visos',...CATEGORIES].map(c=>`<button class="chip${filterCat===c?' active':''}" data-filter="${esc(c)}">${esc(c)}</button>`).join('');
@@ -353,6 +411,7 @@ function renderList(){
     </div>
     <div style="height:14px"></div>
     ${statsHtml}
+    ${verifyBanner}
     ${planBanner}
     <div class="chips">${chips}</div>
     <div style="padding:0 16px 10px;display:flex;gap:8px;align-items:center">
@@ -422,12 +481,13 @@ function renderAdd(){
   const hasImg=f.docData&&f.docMime!=='application/pdf';
 
   let docAreaHtml='';
+  const qrButtonHtml = !f.docData ? `<button type="button" class="qr-link-btn" id="qrScanBtn"><i class="ti ti-qrcode"></i>Nuskaityti QR kodą iš čekio</button>` : '';
   if(hasPdf){
     docAreaHtml=`<div class="doc-preview-pdf"><i class="ti ti-file-type-pdf"></i><div><div class="pdf-name">${esc(f.docFileName||'dokumentas.pdf')}</div><div class="pdf-hint">PDF pridėtas</div></div></div>`;
   }else if(hasImg){
     docAreaHtml=`<div style="position:relative"><img class="doc-preview-img" id="docThumb" src="${esc(f.docData)}" alt="" /><div style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.55);border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;pointer-events:none"><i class="ti ti-zoom-in" style="font-size:14px;color:#fff"></i></div></div>`;
   }else{
-    docAreaHtml=`<label class="doc-drop-zone" for="docInput">
+    docAreaHtml=`${qrButtonHtml}<label class="doc-drop-zone" for="docInput">
       <i class="ti ti-${isPhoto?'camera':'paperclip'}"></i>
       <p>${isPhoto?'Fotografuoti arba įkelti':'Prisegti dokumentą (neprivaloma)'}</p>
       <small>JPG, PNG, PDF · max 4MB / 5MB PDF</small>
@@ -515,6 +575,15 @@ function renderDetail(){
     {i:'ti-calendar-due',l:'Garantija iki',v:fmtDate(item.warrantyEnd)},
   ].map(r=>`<div class="detail-row"><i class="ti ${r.i}"></i><span class="dr-label">${esc(r.l)}</span><span class="dr-val">${esc(r.v)}</span></div>`).join('');
 
+  const policySection = `<div class="detail-section">
+    ${state.policyChecking ? `<div class="analyzing-row" style="justify-content:center"><div class="spinner"></div><span style="font-size:13px;color:var(--text2)">AI tikrina gamintojo garantijos politiką...</span></div>`
+      : state.policyResult && state.policyResultFor===item.id ? `<div class="plan-banner" style="background:var(--accent-bg);align-items:flex-start">
+          <i class="ti ti-info-circle" style="color:var(--accent);margin-top:2px"></i>
+          <div class="pb-text" style="color:var(--text)"><b style="color:var(--accent)">AI pasiūlymas (patikrinkite patys):</b><br/>${esc(state.policyResult)}</div>
+        </div>`
+      : `<button class="qr-link-btn" id="checkPolicyBtn"><i class="ti ti-sparkles"></i>Patikrinti gamintojo garantijos terminą su AI</button>`}
+  </div>`;
+
   return`<div>
     <div class="page-header-sm">
       <button class="back-btn" id="backBtn"><i class="ti ti-arrow-left"></i></button>
@@ -528,6 +597,7 @@ function renderDetail(){
     ${docHtml}
     <div class="detail-section"><div class="detail-rows">${rows}</div></div>
     ${item.notes?`<div class="detail-section"><div class="notes-card"><div class="nc-label">Pastabos</div><p>${esc(item.notes)}</p></div></div>`:''}
+    ${policySection}
     <div class="detail-section"><button class="delete-btn" id="deleteBtn2"><i class="ti ti-trash"></i>Ištrinti įrašą</button></div>
     <div style="height:8px"></div>
   </div>`;
@@ -592,6 +662,7 @@ function attachEvents(){
   });
 
   on('logoutBtn','click',()=>{if(confirm('Atsijungti?'))doLogout();});
+  on('resendVerifyBtn','click',resendVerification);
   on('upgradeBtn','click',()=>toast('Premium netrukus! 🚀'));
   on('upgradeBtn2','click',()=>toast('Premium netrukus! 🚀'));
   onAll('.chip[data-filter]','click',e=>{state.filterCat=e.currentTarget.dataset.filter;render();});
@@ -627,6 +698,7 @@ function attachEvents(){
   });
 
   on('docInput','change',handleDoc);
+  on('qrScanBtn','click',startQrScanner);
   on('removeDoc','click',()=>{state.form.docData=null;state.form.docMime=null;state.form.docFileName=null;state.docError='';render();});
   on('docThumb','click',()=>{if(state.form.docData)state.lightbox=state.form.docData;render();});
   on('docImg','click',()=>{const it=state.items.find(i=>i.id===state.selected);if(it?.docUrl)state.lightbox=it.docUrl;render();});
@@ -634,6 +706,7 @@ function attachEvents(){
   on('saveBtn','click',saveItem);
   on('deleteBtn','click',()=>deleteItem(state.selected));
   on('deleteBtn2','click',()=>deleteItem(state.selected));
+  on('checkPolicyBtn','click',()=>{const it=state.items.find(i=>i.id===state.selected);if(it)checkPolicy(it);});
 }
 
 function syncSave(){const b=document.getElementById('saveBtn');if(b)b.disabled=!state.form.name.trim();}
@@ -706,6 +779,126 @@ function base64ToBlob(b64,mime){
 }
 
 // ── Document picking ───────────────────────────────────────────────────────
+// ── QR scanner ─────────────────────────────────────────────────────────────
+// Lithuanian e-receipts (i.MAS) typically encode a URL like:
+// https://www.vmi.lt/cms/.../kvitas?... with date/sum params, or a raw
+// pipe/semicolon-delimited string containing date and amount. We try to
+// extract a date and amount from whatever pattern appears.
+function renderQrScanner(){
+  return `<div class="qr-scanner" id="qrScannerOverlay">
+    <div class="qr-scanner-bar">
+      <button class="back-btn" id="qrCloseBtn"><i class="ti ti-x"></i></button>
+    </div>
+    <video id="qrVideo" autoplay playsinline muted></video>
+    <div class="qr-scanner-overlay"></div>
+    <div class="qr-scanner-hint">Nukreipkite kamerą į QR kodą ant čekio</div>
+  </div>`;
+}
+
+async function startQrScanner(){
+  state.qrScanning = true;
+  render();
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    state.qrStream = stream;
+    const video = document.getElementById('qrVideo');
+    if(!video){ stopQrScanner(); return; }
+    video.srcObject = stream;
+    await video.play();
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    const scanFrame = () => {
+      if(!state.qrScanning || !video.videoWidth) {
+        if(state.qrScanning) requestAnimationFrame(scanFrame);
+        return;
+      }
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = window.jsQR ? window.jsQR(imageData.data, imageData.width, imageData.height) : null;
+      if(code && code.data){
+        handleQrResult(code.data);
+        return;
+      }
+      requestAnimationFrame(scanFrame);
+    };
+    requestAnimationFrame(scanFrame);
+  }catch(e){
+    toast('Nepavyko pasiekti kameros');
+    stopQrScanner();
+  }
+}
+
+function stopQrScanner(){
+  state.qrScanning = false;
+  if(state.qrStream){
+    state.qrStream.getTracks().forEach(t=>t.stop());
+    state.qrStream = null;
+  }
+  render();
+}
+
+function handleQrResult(text){
+  if(navigator.vibrate) navigator.vibrate(15);
+  stopQrScanner();
+
+  // Try to extract a date (YYYY-MM-DD or DD.MM.YYYY) from the QR payload
+  let foundDate = null;
+  const isoMatch = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+  const ltMatch = text.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+  if(isoMatch){
+    foundDate = `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  } else if(ltMatch){
+    foundDate = `${ltMatch[3]}-${ltMatch[2]}-${ltMatch[1]}`;
+  }
+
+  // Try to extract an amount (e.g. "12.50" near "EUR" or "suma")
+  let foundAmount = null;
+  const amountMatch = text.match(/(\d+[.,]\d{2})\s*(EUR|€)?/i);
+  if(amountMatch) foundAmount = amountMatch[1].replace(',', '.');
+
+  if(foundDate){
+    state.form.purchaseDate = foundDate;
+    if(state.form.warrantyMonths) state.form.warrantyEnd = addMonths(foundDate, state.form.warrantyMonths);
+  }
+  if(foundAmount){
+    state.form.notes = [state.form.notes, `Kaina (iš QR): ${foundAmount} €`].filter(Boolean).join('\n');
+  }
+  if(!foundDate && !foundAmount){
+    state.form.docNumber = text.slice(0,100);
+    toast('QR nuskaitytas, bet datos neatpažinau – patikrinkite duomenis rankiniu būdu');
+  } else {
+    toast('QR duomenys įkelti ✓');
+  }
+  render();
+}
+// Resizes to max 1600px on the longest side and re-encodes as JPEG.
+// Typical phone photos (3-8MB) shrink to ~150-400KB while staying readable
+// for both humans and the AI receipt parser.
+function compressImage(dataUrl, maxDim=1600, quality=0.82){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      let{width,height}=img;
+      if(width>maxDim||height>maxDim){
+        if(width>height){ height=Math.round(height*(maxDim/width)); width=maxDim; }
+        else{ width=Math.round(width*(maxDim/height)); height=maxDim; }
+      }
+      const canvas=document.createElement('canvas');
+      canvas.width=width;canvas.height=height;
+      const ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0,width,height);
+      const out=canvas.toDataURL('image/jpeg',quality);
+      resolve(out);
+    };
+    img.onerror=()=>reject(new Error('Nepavyko apdoroti nuotraukos'));
+    img.src=dataUrl;
+  });
+}
+
 function handleDoc(e){
   const file=e.target.files[0];if(!file)return;
   const isPdf=file.type==='application/pdf';
@@ -716,21 +909,53 @@ function handleDoc(e){
   state.docError='';
   const reader=new FileReader();
   reader.onload=async ev=>{
-    const dataUrl=ev.target.result,b64=dataUrl.split(',')[1];
+    const dataUrl=ev.target.result;
     if(isPdf){
+      const b64=dataUrl.split(',')[1];
       state.form.docData=b64;state.form.docMime='application/pdf';state.form.docFileName=file.name;render();
     }else{
-      const img=new Image();
-      img.onload=async()=>{
-        state.form.docData=dataUrl;state.form.docMime=file.type;state.form.docFileName=file.name;
-        if(state.addMode==='photo'){state.analyzing=true;render();await analyzeDoc(b64,file.type);state.analyzing=false;}
+      try{
+        // Verify it's a real loadable image first
+        await new Promise((res,rej)=>{ const t=new Image(); t.onload=res; t.onerror=rej; t.src=dataUrl; });
+        const compressed = await compressImage(dataUrl);
+        const compB64 = compressed.split(',')[1];
+        state.form.docData=compressed; state.form.docMime='image/jpeg'; state.form.docFileName=file.name.replace(/\.[^.]+$/,'.jpg');
+        if(state.addMode==='photo'){state.analyzing=true;render();await analyzeDoc(compB64,'image/jpeg');state.analyzing=false;}
         render();
-      };
-      img.onerror=()=>{state.docError='Failas neatpažintas kaip nuotrauka';render();};
-      img.src=dataUrl;
+      }catch(err){
+        state.docError='Failas neatpažintas kaip nuotrauka';render();
+      }
     }
   };
   reader.readAsDataURL(file);
+}
+
+async function checkPolicy(item){
+  state.policyChecking = true; state.policyResult=null; render();
+  try{
+    const idToken = await state.user.getIdToken();
+    const res = await fetch(WORKER_URL, {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${idToken}`},
+      body: JSON.stringify({
+        model:'claude-sonnet-4-6', max_tokens:500, use_search:true,
+        messages:[{role:'user', content:[{type:'text', text:
+          `Kiek laiko gamintojas paprastai suteikia garantiją šiam produktui: "${item.name}"${item.shop?` (pirkta iš ${item.shop})`:''}? `+
+          `Atsakyk lietuviškai, TRUMPAI (2-3 sakiniai), nurodyk tipinį garantijos terminą ir paminėk, kad tikslią informaciją reikia patikrinti gamintojo svetainėje ar pirkimo dokumentuose, nes ji gali skirtis pagal modelį ir šalį.`
+        }]}]
+      })
+    });
+    if(res.status===403){ toast('Patvirtinkite el. paštą šiai funkcijai'); state.policyChecking=false; render(); return; }
+    if(res.status===429){ toast('Pasiektas dienos AI limitas'); state.policyChecking=false; render(); return; }
+    if(!res.ok) throw new Error('request failed');
+    const data = await res.json();
+    const text = (data.content||[]).filter(c=>c.type==='text').map(c=>c.text||'').join(' ').trim();
+    state.policyResult = text || 'Nepavyko gauti atsakymo. Patikrinkite gamintojo svetainę.';
+    state.policyResultFor = item.id;
+  }catch(e){
+    toast('Nepavyko patikrinti – bandykite vėliau');
+  }
+  state.policyChecking = false;
+  render();
 }
 
 async function analyzeDoc(b64,mime){
