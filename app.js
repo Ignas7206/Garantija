@@ -790,8 +790,9 @@ function renderQrScanner(){
       <button class="back-btn" id="qrCloseBtn"><i class="ti ti-x"></i></button>
     </div>
     <video id="qrVideo" autoplay playsinline muted></video>
-    <div class="qr-scanner-overlay"></div>
-    <div class="qr-scanner-hint">Nukreipkite kamerą į QR kodą ant čekio</div>
+    <div class="qr-scanner-overlay" id="qrOverlayBox"><div class="qr-scan-line" id="qrScanLine"></div></div>
+    <div class="qr-scanner-status" id="qrStatus"><i class="ti ti-circle-check"></i><span>QR kodas aptiktas!</span></div>
+    <div class="qr-scanner-hint" id="qrHint">Nukreipkite kamerą į QR kodą ant čekio</div>
   </div>`;
 }
 
@@ -808,19 +809,31 @@ async function startQrScanner(){
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    let detected = false;
+    let frameCount = 0;
 
     const scanFrame = () => {
-      if(!state.qrScanning || !video.videoWidth) {
-        if(state.qrScanning) requestAnimationFrame(scanFrame);
-        return;
-      }
+      if(!state.qrScanning || detected) return;
+      if(!video.videoWidth){ requestAnimationFrame(scanFrame); return; }
+
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = window.jsQR ? window.jsQR(imageData.data, imageData.width, imageData.height) : null;
+
+      frameCount++;
+      // Subtle "scanning actively" hint update every ~30 frames so the user
+      // knows the loop is alive even before anything is found.
+      if(frameCount % 30 === 0){
+        const hint = document.getElementById('qrHint');
+        if(hint) hint.textContent = 'Ieškoma QR kodo...';
+      }
+
       if(code && code.data){
-        handleQrResult(code.data);
+        detected = true;
+        showQrDetected();
+        setTimeout(()=> handleQrResult(code.data), 550);
         return;
       }
       requestAnimationFrame(scanFrame);
@@ -830,6 +843,18 @@ async function startQrScanner(){
     toast('Nepavyko pasiekti kameros');
     stopQrScanner();
   }
+}
+
+function showQrDetected(){
+  if(navigator.vibrate) navigator.vibrate(15);
+  const box = document.getElementById('qrOverlayBox');
+  const status = document.getElementById('qrStatus');
+  const line = document.getElementById('qrScanLine');
+  const hint = document.getElementById('qrHint');
+  if(box) box.classList.add('detected');
+  if(status) status.classList.add('show','success');
+  if(line) line.style.display = 'none';
+  if(hint) hint.textContent = 'Apdorojama...';
 }
 
 function stopQrScanner(){
@@ -842,7 +867,6 @@ function stopQrScanner(){
 }
 
 function handleQrResult(text){
-  if(navigator.vibrate) navigator.vibrate(15);
   stopQrScanner();
 
   // Try to extract a date (YYYY-MM-DD or DD.MM.YYYY) from the QR payload

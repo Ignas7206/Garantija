@@ -306,7 +306,16 @@
     /* ── QR scanner ── */
     .qr-scanner { position: fixed; inset: 0; z-index: 350; background: #000; display: flex; flex-direction: column; }
     .qr-scanner video { flex: 1; object-fit: cover; width: 100%; }
-    .qr-scanner-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 240px; height: 240px; border: 2px solid #fff; border-radius: 16px; box-shadow: 0 0 0 2000px rgba(0,0,0,0.5); }
+    .qr-scanner-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 240px; height: 240px; border: 3px solid #fff; border-radius: 16px; box-shadow: 0 0 0 2000px rgba(0,0,0,0.5); transition: border-color 0.15s, box-shadow 0.15s; }
+    .qr-scanner-overlay.detected { border-color: var(--green); box-shadow: 0 0 0 2000px rgba(0,0,0,0.5), 0 0 24px 4px rgba(76,193,118,0.6); animation: qrDetectPulse 0.4s ease; }
+    @keyframes qrDetectPulse { 0% { transform: translate(-50%,-50%) scale(1); } 50% { transform: translate(-50%,-50%) scale(1.04); } 100% { transform: translate(-50%,-50%) scale(1); } }
+    .qr-scanner-status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -150px); z-index: 3; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 20px; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+    .qr-scanner-status.show { opacity: 1; }
+    .qr-scanner-status.success { background: var(--green); }
+    .qr-scanner-status i { font-size: 16px; color: #fff; }
+    .qr-scanner-status span { font-size: 13px; color: #fff; font-weight: 500; }
+    .qr-scan-line { position: absolute; left: 8%; right: 8%; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); top: 0; animation: qrScanLine 2s ease-in-out infinite; }
+    @keyframes qrScanLine { 0%,100% { top: 8%; } 50% { top: 92%; } }
     .qr-scanner-bar { position: absolute; top: calc(var(--safe-top) + 12px); left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: center; z-index: 2; }
     .qr-scanner-bar .back-btn { background: rgba(255,255,255,0.15); color: #fff; }
     .qr-scanner-hint { position: absolute; bottom: calc(var(--safe-bottom) + 24px); left: 0; right: 0; text-align: center; color: #fff; font-size: 14px; padding: 0 32px; z-index: 2; }
