@@ -40,7 +40,7 @@ let state = {
   docError:'', showWarranty:false,
   online: navigator.onLine,
   onboardSlide: 0,
-  showOnboarding: !localStorage.getItem('galio_onboarded'),
+  showOnboarding: !localStorage.getItem('galio_onboarded') && !localStorage.getItem('garantijos_onboarded'),
   swipe: { id:null, startX:0, currentX:0, dragging:false },
   addPulse: false,
   qrScanning: false, qrStream: null,
@@ -124,18 +124,22 @@ function friendlyAuthError(code){
 // ── Watchdog: savigelbėjimo mechanizmai ────────────────────────────────────
 
 // 1. Boot watchdog — jei per 10s nepasikrovė, rodo "Bandyti iš naujo"
-const _bootWatchdog = setTimeout(()=>{
-  if(!state.booted){
-    const scr = document.getElementById('screen');
-    if(scr) scr.innerHTML = `
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:16px;padding:32px;text-align:center">
-        <i class="ti ti-wifi-off" style="font-size:48px;color:var(--text3)"></i>
-        <p style="font-size:16px;font-weight:600;color:var(--text1)">Nepavyko prisijungti</p>
-        <p style="font-size:14px;color:var(--text2)">Patikrinkite interneto ryšį ir bandykite iš naujo</p>
-        <button onclick="location.reload()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer">Bandyti iš naujo</button>
-      </div>`;
-  }
-}, 10000);
+// Paleidžiamas tik po DOMContentLoaded, kad Firebase spėtų inicializuotis
+let _bootWatchdog = null;
+document.addEventListener('DOMContentLoaded', ()=>{
+  _bootWatchdog = setTimeout(()=>{
+    if(!state.booted){
+      const scr = document.getElementById('screen');
+      if(scr) scr.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:16px;padding:32px;text-align:center">
+          <i class="ti ti-wifi-off" style="font-size:48px;color:var(--text3)"></i>
+          <p style="font-size:16px;font-weight:600;color:var(--text1)">Nepavyko prisijungti</p>
+          <p style="font-size:14px;color:var(--text2)">Patikrinkite interneto ryšį ir bandykite iš naujo</p>
+          <button onclick="location.reload()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer">Bandyti iš naujo</button>
+        </div>`;
+    }
+  }, 10000);
+});
 
 // 2. Analyzing watchdog — jei AI analizė užtrunka >35s, automatiškai atšaukia
 let _analyzeWatchdog = null;
@@ -525,7 +529,8 @@ function _doRender(){
 // ── Onboarding ─────────────────────────────────────────────────────────────
 const ONBOARD_SLIDES = [
   { icon:'ti-camera', bg:'var(--accent-bg)', color:'var(--accent)', title:'Nufotografuok čekį', text:'AI automatiškai atpažįsta produktą, parduotuvę ir datas iš nuotraukos ar PDF per kelias sekundes.' },
-  { icon:'ti-bell-ringing', bg:'var(--orange-bg)', color:'var(--orange)', title:'Niekada nepraleisk garantijos', text:'Matykite iš karto, kurių daiktų garantija baigiasi greitai, ir nepraraskite teisės į nemokamą remontą.' },
+  { icon:'ti-device-laptop', bg:'var(--orange-bg)', color:'var(--orange)', title:'Sąskaita kompiuteryje?', text:'Ne bėda — atidaryk ją ekrane ir nufotografuok telefonu. AI perskaito net ir ekrano nuotrauką.' },
+  { icon:'ti-bell-ringing', bg:'var(--red-bg)', color:'var(--red)', title:'Niekada nepraleisk garantijos', text:'Matykite iš karto, kurių daiktų garantija baigiasi greitai, ir nepraraskite teisės į nemokamą remontą.' },
   { icon:'ti-cloud-lock', bg:'var(--green-bg)', color:'var(--green)', title:'Saugu ir visada po ranka', text:'Duomenys saugomi debesyje su jūsų paskyra ir pasiekiami iš bet kurio įrenginio, net be interneto.' },
 ];
 function renderOnboarding(){
