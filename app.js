@@ -198,7 +198,7 @@ onAuthStateChanged(auth, async (user)=>{
     }
   }
   render();
-  if(user) setTimeout(initNavAdd, 100);
+  if(user) render();
 });
 
 let verifyPollTimer=null;
@@ -468,28 +468,13 @@ window.addEventListener('popstate', () => {
 
 // Nav handler — vienkartinis, iš index.html
 window._appNav = (tab) => { state.view=tab; render(); };
+window._appStartNewItem = (mode) => {
+  startNewItem(mode);
+  if(mode==='photo'){ renderSync(); requestAnimationFrame(()=>document.getElementById('docInput')?.click()); }
+  else render();
+};
 
 // navAdd — vienkartinis init (long-press = kamera, tap = picker)
-function initNavAdd(){
-  const navAdd = document.getElementById('navAdd');
-  if(!navAdd) return;
-  let pressTimer=null, longPressed=false;
-  const startPress=()=>{
-    longPressed=false;
-    pressTimer=setTimeout(()=>{
-      longPressed=true;
-      if(navigator.vibrate)navigator.vibrate(12);
-      startNewItem('photo'); renderSync();
-      setTimeout(()=>document.getElementById('docInput')?.click(),60);
-    },480);
-  };
-  const cancelPress=()=>{ clearTimeout(pressTimer); };
-  navAdd.addEventListener('touchstart',startPress,{passive:true});
-  navAdd.addEventListener('touchend',e=>{ cancelPress(); if(!longPressed){ startNewItem(null);render(); } });
-  navAdd.addEventListener('touchcancel',cancelPress);
-  navAdd.addEventListener('mousedown',startPress);
-  navAdd.addEventListener('mouseup',()=>{ cancelPress(); if(!longPressed){ startNewItem(null);render(); } });
-}
 function render(){ _doRender(); }
 function renderSync(){ _doRender(); }
 

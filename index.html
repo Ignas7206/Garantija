@@ -419,11 +419,31 @@
 <script type="module" src="firebase-config.js"></script>
 <script type="module" src="app.js"></script>
 <script>
-  // Nav mygtukų listener'iai — vieną kartą, ne kiekvieno render'o metu
   document.addEventListener('DOMContentLoaded', ()=>{
+    // Nav mygtukų listener'iai — vieną kartą
     document.getElementById('navList')?.addEventListener('click',()=>{ window._appNav('list'); });
     document.getElementById('navSearch')?.addEventListener('click',()=>{ window._appNav('search'); });
     document.getElementById('navSettings')?.addEventListener('click',()=>{ window._appNav('settings'); });
+
+    // + mygtukas — tap = picker, long-press = kamera
+    const navAdd = document.getElementById('navAdd');
+    if(navAdd){
+      let pressTimer=null, longPressed=false;
+      const startPress=()=>{
+        longPressed=false;
+        pressTimer=setTimeout(()=>{
+          longPressed=true;
+          if(navigator.vibrate)navigator.vibrate(12);
+          if(window._appStartNewItem){ window._appStartNewItem('photo'); }
+        },480);
+      };
+      const cancelPress=()=>{ clearTimeout(pressTimer); };
+      navAdd.addEventListener('touchstart',startPress,{passive:true});
+      navAdd.addEventListener('touchend',e=>{ cancelPress(); if(!longPressed && window._appStartNewItem){ window._appStartNewItem(null); } });
+      navAdd.addEventListener('touchcancel',cancelPress);
+      navAdd.addEventListener('mousedown',startPress);
+      navAdd.addEventListener('mouseup',()=>{ cancelPress(); if(!longPressed && window._appStartNewItem){ window._appStartNewItem(null); } });
+    }
   });
 </script>
 </body>
