@@ -51,6 +51,7 @@ let state = {
   migratingStorage: false, // true while toggleStorageMode() is mid-flight; suppresses auto-reattach
   policyChecking: false, policyResult: null, policyResultFor: null,
   contactBusy: false, contactSent: false, contactError: '', contactDraft: '',
+  adminUsers: [],
   theme: localStorage.getItem('galio_theme') || 'auto',
 };
 
@@ -65,8 +66,8 @@ applyTheme();
 
 function emptyForm(){return{name:'',category:'Elektronika',shop:'',purchaseDate:today(),warrantyEnd:addMonths(today(),24),warrantyMonths:24,docType:'Kvitas / čekis',docNumber:'',notes:'',docData:null,docMime:null,docFileName:null,docStoragePath:null,notifyEnabled:true};}
 
-// Admin vartotojai automatiškai gauna premium teises (AI limitas, cloud sync)
-function isPremiumUser(){ return state.userDoc?.plan==='premium' || state.userDoc?.role==='admin'; }
+// Admin ir tester vartotojai automatiškai gauna premium teises
+function isPremiumUser(){ return ['premium','tester'].includes(state.userDoc?.plan) || state.userDoc?.role==='admin'; }
 
 // Resets everything tied to "adding one new item" — the form fields plus
 // the per-item AI retry counter and pending-charge flag. Centralized here
@@ -855,7 +856,7 @@ function renderSettings(){
       <div class="settings-profile-info">
         <div class="settings-profile-email">${esc(u.displayName||u.email)}</div>
         <div class="settings-profile-plan${isPremium?' premium':''}">
-          ${state.userDoc?.role==='admin' ? '<i class="ti ti-shield-check" style="font-size:13px"></i> Administratorius' : isPremium ? '<i class="ti ti-crown" style="font-size:13px"></i> Premium narys' : `Nemokamas planas · ${state.items.length} įrašų`}
+          ${state.userDoc?.role==='admin' ? '<i class="ti ti-shield-check" style="font-size:13px"></i> Administratorius' : state.userDoc?.plan==='tester' ? '<i class="ti ti-flask" style="font-size:13px"></i> Testeris' : isPremium ? '<i class="ti ti-crown" style="font-size:13px"></i> Premium narys' : `Nemokamas planas · ${state.items.length} įrašų`}
         </div>
       </div>
     </div>
@@ -1000,49 +1001,75 @@ function renderContact(){
 // ── Admin stats ────────────────────────────────────────────────────────────
 function renderAdminStats(){
   const s = state.adminStats;
+  const users = state.adminUsers || [];
   return `<div>
     <div class="page-header-sm">
       <button class="back-btn" id="adminBackBtn"><i class="ti ti-arrow-left"></i></button>
-      <h2>Admin statistika</h2>
+      <h2>Admin</h2>
     </div>
     ${!s ? `<div class="empty-state"><div class="spinner" style="margin:0 auto"></div><p style="margin-top:16px">Kraunama...</p></div>` : `
     <div class="stats-row" style="padding:16px">
       <div class="stat-tile"><div class="n">${s.totalUsers}</div><div class="l">Vartotojų</div></div>
       <div class="stat-tile"><div class="n" style="color:var(--gold)">${s.premiumUsers}</div><div class="l">Premium</div></div>
-      <div class="stat-tile"><div class="n" style="color:var(--green)">${s.activeUsers}</div><div class="l">Su įrašais</div></div>
+      <div class="stat-tile"><div class="n" style="color:var(--accent)">${s.testerUsers}</div><div class="l">Testerių</div></div>
     </div>
-    <div class="detail-section">
+    <div class="detail-section" style="margin:0 16px 16px">
       <div class="detail-rows">
         <div class="detail-row"><i class="ti ti-receipt"></i><span class="dr-label">Viso garantijų įrašų</span><span class="dr-val">${s.totalItems}</span></div>
         <div class="detail-row"><i class="ti ti-mail-check"></i><span class="dr-label">Patvirtintų el. paštų</span><span class="dr-val">${s.verifiedUsers}/${s.totalUsers}</span></div>
         <div class="detail-row"><i class="ti ti-calendar-plus"></i><span class="dr-label">Naujų per 7 d.</span><span class="dr-val">${s.newLast7Days}</span></div>
       </div>
     </div>
-    <p style="text-align:center;font-size:11px;color:var(--text3);padding:0 16px 24px">Rodomi tik agreguoti, anoniminiai skaičiai. Vartotojų garantijų turinys niekada nerodomas.</p>
+
+    <p class="form-label-section" style="margin:0 16px 8px">Vartotojai</p>
+    <div class="form-section" style="margin:0 16px 16px;padding:0">
+      ${users.length===0 ? `<div style="padding:16px;text-align:center;color:var(--text3);font-size:14px">Nėra vartotojų</div>` :
+        users.map(u => {
+          const planLabel = u.plan==='premium' ? '👑 Premium' : u.plan==='tester' ? '🧪 Testeris' : 'Nemokamas';
+          const planColor = u.plan==='premium' ? 'var(--gold)' : u.plan==='tester' ? 'var(--accent)' : 'var(--text3)';
+          const isTester = u.plan==='tester';
+          const isAdminUser = u.role==='admin';
+          return `<div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:6px;padding:12px 14px">
+            <div style="display:flex;width:100%;align-items:center;gap:8px">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.email}</div>
+                <div style="font-size:11px;color:${planColor};margin-top:2px">${planLabel}${isAdminUser?' · Admin':''}${u.emailVerified?' · ✓':''} · ${u.itemCount||0} įrašų</div>
+              </div>
+              ${!isAdminUser ? `<button class="chip${isTester?' active':''}" data-uid="${u.uid}" data-action="toggleTester" style="font-size:11px;padding:3px 10px;flex-shrink:0">
+                ${isTester ? 'Atimti testerį' : 'Testeris'}
+              </button>` : ''}
+            </div>
+          </div>`;
+        }).join('')
+      }
+    </div>
     `}
   </div>`;
 }
 
 async function loadAdminStats(){
   state.adminStats = null;
+  state.adminUsers = [];
   render();
   try{
     const snap = await getDocs(collection(db,'users'));
-    let totalUsers=0, premiumUsers=0, activeUsers=0, totalItems=0, verifiedUsers=0, newLast7Days=0;
+    let totalUsers=0, premiumUsers=0, testerUsers=0, activeUsers=0, totalItems=0, verifiedUsers=0, newLast7Days=0;
     const weekAgoMs = Date.now() - 7*86400000;
+    const usersList = [];
     snap.forEach(d=>{
       const u = d.data();
       totalUsers++;
       if(u.plan==='premium') premiumUsers++;
+      if(u.plan==='tester') testerUsers++;
       if((u.itemCount||0)>0) activeUsers++;
       totalItems += (u.itemCount||0);
-      // emailVerified isn't stored in Firestore by default; this is an
-      // approximation based on whatever we choose to track. For now we
-      // skip it unless present.
       if(u.emailVerified) verifiedUsers++;
       if(u.createdAt && u.createdAt.toMillis && u.createdAt.toMillis() > weekAgoMs) newLast7Days++;
+      usersList.push({ uid: d.id, email: u.email||'—', plan: u.plan||'free', role: u.role||'', itemCount: u.itemCount||0, emailVerified: !!u.emailVerified });
     });
-    state.adminStats = { totalUsers, premiumUsers, activeUsers, totalItems, verifiedUsers, newLast7Days };
+    usersList.sort((a,b)=>a.email.localeCompare(b.email));
+    state.adminStats = { totalUsers, premiumUsers, testerUsers, activeUsers, totalItems, verifiedUsers, newLast7Days };
+    state.adminUsers = usersList;
   }catch(e){
     toast('Nepavyko įkelti statistikos');
     state.view='settings';
@@ -1197,6 +1224,22 @@ function attachEvents(){
   on('contactBackBtn2','click',()=>{ state.view='settings'; render(); });
   on('contactSendBtn','click', sendContactMessage);
   on('adminBackBtn','click',()=>{state.view='settings';render();});
+  onAll('[data-action="toggleTester"]','click', async e=>{
+    const uid = e.currentTarget.dataset.uid;
+    const user = state.adminUsers?.find(u=>u.uid===uid);
+    if(!user) return;
+    const newPlan = user.plan==='tester' ? 'free' : 'tester';
+    const label = newPlan==='tester' ? 'suteikti testerio planą' : 'atimti testerio planą';
+    if(!confirm(`Ar tikrai norite ${label} vartotojui ${user.email}?`)) return;
+    try{
+      await updateDoc(doc(db,'users',uid), { plan: newPlan });
+      user.plan = newPlan;
+      toast(newPlan==='tester' ? `✓ ${user.email} dabar testeris` : `✓ ${user.email} grąžintas į nemokamą planą`);
+      render();
+    }catch(err){
+      toast('Nepavyko pakeisti plano — ' + (err.message||'klaida'));
+    }
+  });
 }
 
 async function sendContactMessage(){
