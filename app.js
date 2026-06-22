@@ -46,7 +46,8 @@ let state = {
   qrScanning: false, qrStream: null,
   aiRetriesUsedThisItem: 0, // resets each time the add-form is freshly opened; max 2 scan attempts before quota is charged on save
   pendingAiCharge: false, // true once a scan succeeds — saveItem() consumes one quota unit if this is set
-  aiMultiItems: [], // remaining un-applied items when a receipt had multiple products
+  aiMultiItems: [],
+  multiItemReceipt: null,
   adminStats: null,
   storageMode: 'local', // 'local' | 'cloud' — driven by userDoc.storageMode once loaded
   migratingStorage: false, // true while toggleStorageMode() is mid-flight; suppresses auto-reattach
@@ -65,7 +66,7 @@ function applyTheme(){
 }
 applyTheme();
 
-function emptyForm(){return{name:'',category:'',shop:'',purchaseDate:'',warrantyEnd:'',warrantyMonths:24,docType:'Kvitas / čekis',docNumber:'',notes:'',docData:null,docMime:null,docFileName:null,docStoragePath:null,notifyEnabled:true};}
+function emptyForm(){return{name:'',category:'',shop:'',purchaseDate:'',warrantyEnd:'',warrantyMonths:24,docType:'Kvitas / čekis',docNumber:'',notes:'',docData:null,docMime:null,docFileName:null,docStoragePath:null,notifyEnabled:true,warrantyAppliesWarning:false};}
 
 // Admin, tester ir friend vartotojai automatiškai gauna premium teises
 function isPremiumUser(){ return ['premium','tester','friend'].includes(state.userDoc?.plan) || state.userDoc?.role==='admin'; }
@@ -514,6 +515,7 @@ function _doRender(){
   else if(state.view==='detail')   html=renderDetail();
   else if(state.view==='settings') html=renderSettings();
   else if(state.view==='contact')  html=renderContact();
+  else if(state.view==='multi-select') html=renderMultiSelect();
   else if(state.view==='admin-stats') html=renderAdminStats();
 
   pushHistoryIfNeeded(viewKey);
@@ -886,6 +888,11 @@ function renderAdd(){
           <label>Garantija</label>
           <span class="fv${!f.warrantyMonths&&f.warrantyMonths!==0?' fv-placeholder':''}">${esc(selOpt.l)}<i class="ti ti-chevron-right" style="font-size:14px;color:var(--text3)"></i></span>
         </div>
+      </div>
+      ${f.warrantyAppliesWarning ? `<div class="plan-banner" style="margin-bottom:16px;background:var(--orange-bg)">
+        <i class="ti ti-info-circle" style="color:var(--orange);flex-shrink:0"></i>
+        <div class="pb-text" style="color:var(--text);font-size:14px">AI: šiai prekei garantija paprastai netaikoma — patikrinkite patys ir koreguokite jei reikia.</div>
+      </div>` : ''}
         ${f.warrantyMonths===null?`<div class="form-field"><label>Galioja iki</label><input type="date" id="f_warrantyEnd" value="${esc(f.warrantyEnd)}" /></div>`:''}
         ${f.purchaseDate?`<div class="form-field"><label>14 d. grąžinimas iki</label><span style="font-size:16px;color:var(--text2)">${fmtDate(addDays(f.purchaseDate,14))}</span></div>`:''}
       </div>
@@ -928,6 +935,7 @@ function renderDetail(){
   else if(days<=30){sc='var(--orange-bg)';si='ti-shield-exclamation';sv=`Liko ${days} d.`;}
   else{sc='var(--green-bg)';si='ti-shield-check';sv=`Liko ${days} d.`;}
   const textColor=days===null?'var(--text2)':days<0?'var(--red)':days<=30?'var(--orange)':'var(--green)';
+  const isPremium = isPremiumUser();
 
   let docHtml='';
   if(item.docUrl&&item.docMime==='application/pdf'){
@@ -947,14 +955,14 @@ function renderDetail(){
     ...(item.returnDeadline ? [{i:'ti-rotate-2',l:'14 d. grąžinimas iki',v:fmtDate(item.returnDeadline)}] : []),
   ].map(r=>`<div class="detail-row"><i class="ti ${r.i}"></i><span class="dr-label">${esc(r.l)}</span><span class="dr-val">${esc(r.v)}</span></div>`).join('');
 
-  const policySection = `<div class="detail-section">
-    ${state.policyChecking ? `<div class="analyzing-row" style="justify-content:center"><div class="spinner"></div><span style="font-size:15px;color:var(--text2)">AI tikrina gamintojo garantijos politiką...</span></div>`
+  const policySection = isPremium ? `<div class="detail-section">
+    ${state.policyChecking ? `<div class="analyzing-row" style="justify-content:center"><div class="spinner"></div><span style="font-size:15px;color:var(--text2)">AI tikrina garantijos politiką...</span></div>`
       : state.policyResult && state.policyResultFor===item.id ? `<div class="plan-banner" style="background:var(--accent-bg);align-items:flex-start">
-          <i class="ti ti-info-circle" style="color:var(--accent);margin-top:2px"></i>
-          <div class="pb-text" style="color:var(--text)"><b style="color:var(--accent)">AI pasiūlymas (patikrinkite patys):</b><br/>${esc(state.policyResult)}</div>
+          <i class="ti ti-info-circle" style="color:var(--accent);margin-top:2px;flex-shrink:0"></i>
+          <div class="pb-text" style="color:var(--text);font-size:14px;line-height:1.5"><b style="color:var(--accent)">AI pasiūlymas (patikrinkite patys):</b><br/>${esc(state.policyResult.replace(/\*\*/g,'').replace(/\*/g,''))}</div>
         </div>`
-      : `<button class="qr-link-btn" id="checkPolicyBtn"><i class="ti ti-sparkles"></i>Patikrinti gamintojo garantijos terminą su AI</button>`}
-  </div>`;
+      : `<button class="qr-link-btn" id="checkPolicyBtn"><i class="ti ti-sparkles"></i>Patikrinti gamintojo garantiją su AI</button>`}
+  </div>` : '';
 
   return`<div>
     <div class="page-header-sm">
@@ -1138,7 +1146,53 @@ function renderContact(){
   </div>`;
 }
 
-// ── Admin stats ────────────────────────────────────────────────────────────
+// ── Multi-item select ──────────────────────────────────────────────────────
+function renderMultiSelect(){
+  const r = state.multiItemReceipt;
+  if(!r){ state.view='list'; return ''; }
+  const selectedCount = r.items.filter(i=>i.selected).length;
+  return `<div>
+    <div class="page-header-sm">
+      <button class="back-btn" id="multiBackBtn"><i class="ti ti-x"></i></button>
+      <h2>Rastos prekės</h2>
+    </div>
+    <div style="padding:16px 16px 8px">
+      <p style="font-size:16px;color:var(--text2);margin:0 0 4px">Čekyje rasta <b style="color:var(--text)">${r.items.length} prekių</b>. Pasirinkite kurias išsaugoti:</p>
+      ${r.shop?`<p style="font-size:14px;color:var(--text3);margin:0">${esc(r.shop)}${r.purchaseDate?' · '+fmtDate(r.purchaseDate):''}</p>`:''}
+    </div>
+    <div class="form-section" style="margin:0 16px 20px">
+      ${r.items.map((item,idx)=>{
+        const catOptions = CATEGORIES.map(c=>`<option value="${esc(c)}"${c===item.category?' selected':''}>${esc(c)}</option>`).join('');
+        return `<div style="padding:14px 16px;border-bottom:0.5px solid var(--border);display:flex;gap:12px;align-items:flex-start">
+          <button class="multi-check${item.selected?' checked':''}" data-midx="${idx}" style="flex-shrink:0;margin-top:3px;width:24px;height:24px;border-radius:6px;border:2px solid ${item.selected?'var(--accent)':'var(--border2)'};background:${item.selected?'var(--accent)':'transparent'};display:flex;align-items:center;justify-content:center;cursor:pointer">
+            ${item.selected?`<i class="ti ti-check" style="font-size:13px;color:#fff"></i>`:''}
+          </button>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px">${esc(item.name)}</div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <select class="multi-cat" data-midx="${idx}" style="font-size:13px;background:var(--bg3);border:none;border-radius:8px;padding:4px 8px;color:var(--text2);appearance:none;-webkit-appearance:none">
+                <option value="">Kategorija...</option>${catOptions}
+              </select>
+              ${item.warrantyApplies===false
+                ? `<span style="font-size:12px;color:var(--orange);background:var(--orange-bg);padding:3px 8px;border-radius:6px">Garantija netaikoma</span>`
+                : `<span style="font-size:12px;color:var(--green);background:var(--green-bg);padding:3px 8px;border-radius:6px">${item.warrantyMonths?item.warrantyMonths+' mėn.':'Garantija'}</span>`
+              }
+              ${item.price?`<span style="font-size:12px;color:var(--text3)">${esc(String(item.price))}</span>`:''}
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="padding:0 16px 32px;display:flex;flex-direction:column;gap:10px">
+      <button id="multiSaveBtn" class="btn-primary" ${selectedCount===0?'disabled':''} style="font-size:16px;padding:14px">
+        <i class="ti ti-device-floppy"></i> Išsaugoti ${selectedCount} ${selectedCount===1?'prekę':selectedCount<10?'prekes':'prekių'}
+      </button>
+      <button id="multiCancelBtn" style="background:none;border:none;color:var(--text3);font-size:14px;padding:8px;cursor:pointer">Atšaukti</button>
+    </div>
+  </div>`;
+}
+
+
 function renderAdminStats(){
   const s = state.adminStats;
   const users = state.adminUsers || [];
@@ -1344,6 +1398,18 @@ function attachEvents(){
   });
   on('settingsLogoutBtn2','click',()=>{if(confirm('Atsijungti?'))doLogout();});
   on('deleteAccountBtn','click',confirmDeleteAccount);
+  on('multiBackBtn','click',()=>{ state.multiItemReceipt=null; state.view='list'; render(); });
+  on('multiCancelBtn','click',()=>{ state.multiItemReceipt=null; state.view='list'; render(); });
+  onAll('.multi-check','click',e=>{
+    const idx=parseInt(e.currentTarget.dataset.midx);
+    if(state.multiItemReceipt) state.multiItemReceipt.items[idx].selected=!state.multiItemReceipt.items[idx].selected;
+    render();
+  });
+  onAll('.multi-cat','change',e=>{
+    const idx=parseInt(e.currentTarget.dataset.midx);
+    if(state.multiItemReceipt) state.multiItemReceipt.items[idx].category=e.target.value;
+  });
+  on('multiSaveBtn','click', saveMultiItems);
   on('adminPanelBtn','click',()=>{state.view='admin-stats';startViewWatchdog('admin-stats');loadAdminStats();});
   on('helpContactBtn','click',()=>{
     state.contactSent=false; state.contactError=''; state.contactDraft='';
@@ -1531,21 +1597,88 @@ async function saveItem(){
   }
 
   state.uploadPct=null;
-  if(state.aiMultiItems.length>0){
-    // More products were recognized on this same receipt — jump straight
-    // to the next one instead of dropping back to the list, so the user
-    // can save them all in one flow without re-scanning.
-    const next = state.aiMultiItems.shift();
-    state.form = emptyForm();
-    state.aiRetriesUsedThisItem = 0;
-    state.pendingAiCharge = false;
-    applyAiItemToForm(next, {shop: next._shop, purchaseDate: next._purchaseDate, docType: next._docType, docNumber: next._docNumber});
-    state.docError='';
-    toast(`Pridėkite kitą rastą prekę (${state.aiMultiItems.length} liko po šios)`);
-  }else{
-    state.form=emptyForm();state.docError='';state.addMode=null;state.view='list';
-  }
+  state.form=emptyForm();state.docError='';state.addMode=null;state.view='list';
   render();
+  toast('Išsaugota ✓');
+
+async function saveMultiItems(){
+  const r = state.multiItemReceipt;
+  if(!r) return;
+  const selected = r.items.filter(i=>i.selected);
+  if(selected.length===0) return;
+
+  const isCloud = state.storageMode==='cloud';
+  let saved=0, failed=0;
+
+  // Charge one AI scan for the whole receipt (already scanned once)
+  // pendingAiCharge was set true during analyzeDoc — charge it now
+  if(state.pendingAiCharge){
+    const isPremium = isPremiumUser();
+    try{
+      if(!isPremium){
+        await updateDoc(doc(db,'users',state.user.uid),{aiUsesRemaining:increment(-1)});
+        if(state.userDoc) state.userDoc.aiUsesRemaining=Math.max(0,(state.userDoc.aiUsesRemaining??AI_FREE_USES)-1);
+      }
+    }catch(e){ console.warn('AI quota charge failed:',e); }
+    state.pendingAiCharge=false;
+  }
+
+  toast(`Saugoma ${selected.length} prekių...`);
+
+  for(const item of selected){
+    try{
+      const payload={
+        name:item.name.trim().slice(0,200),
+        category:item.category||'Kita',
+        shop:(r.shop||'').slice(0,100),
+        purchaseDate:r.purchaseDate||'',
+        warrantyEnd: item.warrantyApplies===false ? '' : (r.purchaseDate&&item.warrantyMonths ? addMonths(r.purchaseDate,item.warrantyMonths) : ''),
+        warrantyMonths: item.warrantyApplies===false ? null : (item.warrantyMonths||null),
+        docType:r.docType||'Kvitas / čekis',
+        docNumber:(r.docNumber||'').slice(0,100),
+        notes:item.price?`Kaina: ${String(item.price).slice(0,50)}`:'',
+        notifyEnabled:true, docUrl:null, docMime:null, docFileName:null, docStoragePath:null,
+        returnDeadline: r.purchaseDate ? addDays(r.purchaseDate,14) : null,
+        createdAtMs: Date.now(),
+      };
+
+      if(isCloud){
+        const docRef = await addDoc(collection(db,'users',state.user.uid,'warranties'),{...payload,createdAt:serverTimestamp()});
+        await updateDoc(doc(db,'users',state.user.uid),{itemCount:increment(1)});
+        // Dokumentą pridedame tik prie pirmos prekės
+        if(saved===0 && r.docData && r.docMime){
+          try{
+            const ext=r.docMime==='application/pdf'?'pdf':(r.docMime.split('/')[1]||'jpg');
+            const path=`users/${state.user.uid}/documents/${docRef.id}.${ext}`;
+            const blob=base64ToBlob(r.docMime==='application/pdf'?r.docData:r.docData.split(',')[1],r.docMime);
+            await uploadBytes(ref(storage,path),blob,{contentType:r.docMime});
+            const url=await getDownloadURL(ref(storage,path));
+            await updateDoc(docRef,{docUrl:url,docMime:r.docMime,docFileName:r.docFileName||null,docStoragePath:path});
+          }catch(e){ console.warn('Doc upload failed:',e); }
+        }
+      }else{
+        const localItem={
+          ...payload, id:genLocalId(),
+          docUrl: saved===0 ? (r.docData||null) : null,
+          docMime: saved===0 ? (r.docMime||null) : null,
+          docFileName: saved===0 ? (r.docFileName||null) : null,
+        };
+        await localPut(state.user.uid,localItem);
+        state.items.unshift(localItem);
+      }
+      saved++;
+    }catch(e){
+      console.warn('Failed to save item:',e);
+      failed++;
+    }
+  }
+
+  state.multiItemReceipt=null;
+  state.pendingAiCharge=false;
+  state.view='list';
+  render();
+  if(failed>0) toast(`Išsaugota ${saved}, nepavyko ${failed}`);
+  else toast(`Išsaugota ${saved} prekių ✓`);
 }
 
 function base64ToBlob(b64,mime){
@@ -1797,24 +1930,51 @@ function proceedWithFile(file, isPdf){
 }
 
 async function checkPolicy(item){
+  // Naudoja tą pačią Premium dienos kvotą kaip nuskaitymas
+  if(!isPremiumUser()){ toast('Ši funkcija prieinama tik Premium vartotojams'); return; }
+
+  const today = new Date().toISOString().slice(0,10);
+  const month = today.slice(0,7);
+  const dayKey = state.userDoc?.aiDayKey;
+  const dayCount = dayKey===today ? (state.userDoc?.aiDayCount||0) : 0;
+  const monthKey = state.userDoc?.aiMonthKey;
+  const monthCount = monthKey===month ? (state.userDoc?.aiMonthCount||0) : 0;
+  if(dayCount >= PREMIUM_DAILY_LIMIT){
+    toast(`Pasiektas dienos limitas (${PREMIUM_DAILY_LIMIT} AI analizių). Pabandykite rytoj.`);
+    return;
+  }
+  if(monthCount >= PREMIUM_MONTHLY_LIMIT){
+    toast(`Pasiektas mėnesio limitas (${PREMIUM_MONTHLY_LIMIT} AI analizių).`);
+    return;
+  }
+
   state.policyChecking = true; state.policyResult=null; render();
   try{
     const idToken = await state.user.getIdToken();
+
+    // Atnaujinti dienos/mėnesio skaitiklius Firestore'e (tas pats mechanizmas kaip analyzeDoc)
+    const newDayCount = dayKey===today ? dayCount+1 : 1;
+    const newMonthCount = monthKey===month ? monthCount+1 : 1;
+    await updateDoc(doc(db,'users',state.user.uid),{
+      aiDayKey:today, aiDayCount:newDayCount,
+      aiMonthKey:month, aiMonthCount:newMonthCount
+    });
+    if(state.userDoc){ state.userDoc.aiDayKey=today; state.userDoc.aiDayCount=newDayCount; state.userDoc.aiMonthKey=month; state.userDoc.aiMonthCount=newMonthCount; }
+
     const res = await fetch(WORKER_URL, {
       method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${idToken}`},
       body: JSON.stringify({
-        model:'claude-sonnet-4-6', max_tokens:500, use_search:true,
+        model:'claude-sonnet-4-6', max_tokens:300, use_search:true,
         messages:[{role:'user', content:[{type:'text', text:
           `Kiek laiko gamintojas paprastai suteikia garantiją šiam produktui: "${item.name}"${item.shop?` (pirkta iš ${item.shop})`:''}? `+
-          `Atsakyk lietuviškai, TRUMPAI (2-3 sakiniai), nurodyk tipinį garantijos terminą ir paminėk, kad tikslią informaciją reikia patikrinti gamintojo svetainėje ar pirkimo dokumentuose, nes ji gali skirtis pagal modelį ir šalį.`
+          `Atsakyk lietuviškai, TRUMPAI (2-3 sakiniai). Nurodyk tipinį terminą ir paminėk kad reikia patikrinti gamintojo svetainėje.`
         }]}]
       })
     });
-    if(res.status===403){ toast('Patvirtinkite el. paštą šiai funkcijai'); state.policyChecking=false; render(); return; }
-    if(res.status===429){ toast('Pasiektas dienos AI limitas'); state.policyChecking=false; render(); return; }
     if(!res.ok) throw new Error('request failed');
     const data = await res.json();
-    const text = (data.content||[]).filter(c=>c.type==='text').map(c=>c.text||'').join(' ').trim();
+    const text = (data.content||[]).filter(c=>c.type==='text').map(c=>c.text||'').join(' ').trim()
+      .replace(/\*\*/g,'').replace(/\*/g,'');
     state.policyResult = text || 'Nepavyko gauti atsakymo. Patikrinkite gamintojo svetainę.';
     state.policyResultFor = item.id;
   }catch(e){
@@ -2057,10 +2217,11 @@ Grąžink TIK JSON be markdown, šios struktūros:
   "quality": "good|blurry|partial|unclear",
   "qualityNote": "trumpas paaiškinimas jei quality nėra 'good', pvz. 'Trūksta apatinės čekio dalies' arba null",
   "items": [
-    {"name":"tikslus prekės pavadinimas iš dokumento","price":"kaina arba null","warrantyMonths":24,"warrantyApplies":true}
+    {"name":"tikslus prekės pavadinimas iš dokumento","price":"kaina arba null","warrantyMonths":24,"warrantyApplies":true,"category":"Elektronika|Buitinė technika|Avalynė / drabužiai|Baldai|Automobiliai|Kita"}
   ]
 }
 warrantyMonths kiekvienai prekei: 6/12/24/36/60 mėn. pagal produkto tipą, jei warrantyApplies=true. Jei warrantyApplies=false, warrantyMonths=null.
+category kiekvienai prekei: viena iš: Elektronika, Buitinė technika, Avalynė / drabužiai, Baldai, Automobiliai, Kita.
 Jei items sąraše nieko neradai (pvz. visiškai neįskaitoma), grąžink tuščią masyvą [].`}
       ]}]})
     });
@@ -2094,11 +2255,13 @@ Jei items sąraše nieko neradai (pvz. visiškai neįskaitoma), grąžink tušč
     if(items.length===1){
       applyAiItemToForm(items[0], p);
     }else{
-      // Multiple products on one receipt — stash the rest so the user can
-      // step through and create separate entries without re-scanning.
-      state.aiMultiItems = items.slice(1).map(it=>({...it, _shop:p.shop, _purchaseDate:p.purchaseDate, _docType:p.docType, _docNumber:p.docNumber}));
-      applyAiItemToForm(items[0], p);
-      toast(`Rasta ${items.length} prekių šiame dokumente — pirma įkelta, likusias galėsite pridėti atskirai`);
+      // Kelios prekės — rodome pasirinkimo ekraną
+      state.multiItemReceipt = {
+        items: items.map(it=>({...it, _shop:p.shop, _purchaseDate:p.purchaseDate, _docType:p.docType, _docNumber:p.docNumber, selected:true})),
+        shop: p.shop, purchaseDate: p.purchaseDate, docType: p.docType, docNumber: p.docNumber,
+        docData: state.form.docData, docMime: state.form.docMime, docFileName: state.form.docFileName
+      };
+      state.view='multi-select';
     }
   }catch(err){console.warn('AI:',err);}
 }
@@ -2107,21 +2270,27 @@ Jei items sąraše nieko neradai (pvz. visiškai neįskaitoma), grąžink tušč
 // the current form. Used both for single-item scans and for stepping
 // through a multi-item receipt one product at a time.
 function applyAiItemToForm(item, receiptMeta){
-  if(typeof item.name==='string')state.form.name=item.name.slice(0,200);
-  if(typeof receiptMeta.shop==='string')state.form.shop=receiptMeta.shop.slice(0,100);
-  if(typeof receiptMeta.purchaseDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(receiptMeta.purchaseDate))state.form.purchaseDate=receiptMeta.purchaseDate;
-  if(typeof receiptMeta.docNumber==='string')state.form.docNumber=receiptMeta.docNumber.slice(0,100);
-  if(DOC_TYPES.includes(receiptMeta.docType))state.form.docType=receiptMeta.docType;
+  if(typeof item.name==='string') state.form.name=item.name.slice(0,200);
+  if(typeof receiptMeta.shop==='string') state.form.shop=receiptMeta.shop.slice(0,100);
+  if(typeof receiptMeta.purchaseDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(receiptMeta.purchaseDate)) state.form.purchaseDate=receiptMeta.purchaseDate;
+  if(typeof receiptMeta.docNumber==='string') state.form.docNumber=receiptMeta.docNumber.slice(0,100);
+  if(DOC_TYPES.includes(receiptMeta.docType)) state.form.docType=receiptMeta.docType;
 
+  // Kategorija iš AI
+  if(CATEGORIES.includes(item.category)) state.form.category=item.category;
+
+  // Garantija
   if(item.warrantyApplies===false){
     state.form.warrantyMonths=null;
     state.form.warrantyEnd='';
-    state.form.notes=[state.form.notes,'AI: šiai prekei paprastai garantija netaikoma (pvz. greitai gendanti/vienkartinė prekė) — patikrinkite patys.'].filter(Boolean).join('\n');
+    state.form.warrantyAppliesWarning=true;
   }else{
     const wm=WARRANTY_OPTS.find(o=>o.m===item.warrantyMonths);
-    if(wm){state.form.warrantyMonths=item.warrantyMonths;if(state.form.purchaseDate)state.form.warrantyEnd=addMonths(state.form.purchaseDate,item.warrantyMonths);}
+    if(wm){ state.form.warrantyMonths=item.warrantyMonths; if(state.form.purchaseDate) state.form.warrantyEnd=addMonths(state.form.purchaseDate,item.warrantyMonths); }
   }
-  if(item.price)state.form.notes=[state.form.notes,`Kaina: ${String(item.price).slice(0,50)}`].filter(Boolean).join('\n');
+
+  // Kaina į notes (tik jei yra)
+  if(item.price) state.form.notes=[state.form.notes,`Kaina: ${String(item.price).slice(0,50)}`].filter(Boolean).join('\n');
 }
 
 render();
