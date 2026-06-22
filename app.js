@@ -489,6 +489,7 @@ function initNavAdd(){
   navAdd.addEventListener('mousedown',startPress);
   navAdd.addEventListener('mouseup',()=>{ cancelPress(); if(!longPressed){ startNewItem(null);render(); } });
 }
+function render(){ _doRender(); }
 function renderSync(){ _doRender(); }
 
 function _doRender(){
