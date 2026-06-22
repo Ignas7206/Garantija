@@ -511,7 +511,7 @@ function renderAuth(){
       <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.12-.84 2.07-1.79 2.71v2.26h2.9c1.7-1.56 2.68-3.87 2.68-6.61z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.81.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33C2.44 15.98 5.48 18 9 18z"/><path fill="#FBBC05" d="M3.95 10.7c-.18-.54-.28-1.11-.28-1.7s.1-1.16.28-1.7V4.97H.96A8.99 8.99 0 0 0 0 9c0 1.45.35 2.83.96 4.03l2.99-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.97l2.99 2.33C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
       Tęsti su Google
     </button>
-    ${m!=='login'?`<p style="font-size:11px;color:var(--text3);text-align:center;margin-bottom:14px">Tęsdami sutinkate su <a href="terms.html" target="_blank" style="color:var(--accent)">Naudojimo sąlygomis</a> ir <a href="privacy.html" target="_blank" style="color:var(--accent)">Privatumo politika</a></p>`:''}
+    ${m!=='login'?`<p style="font-size:15px;color:var(--text3);text-align:center;margin-bottom:14px">Tęsdami sutinkate su <a href="terms.html" target="_blank" style="color:var(--accent)">Naudojimo sąlygomis</a> ir <a href="privacy.html" target="_blank" style="color:var(--accent)">Privatumo politika</a></p>`:''}
     <div class="login-divider">arba</div>`:''}
 
     <input type="email" id="authEmail" class="login-input" placeholder="El. paštas" autocomplete="email" value="${state.authEmail||''}" />
@@ -625,7 +625,7 @@ function renderList(){
         <div class="card-body">
           <div class="card-top"><span class="card-name">${esc(item.name)}</span>${badgeHtml(days)}</div>
           <div class="card-sub">${esc(item.shop||item.category)}</div>
-          ${item.warrantyEnd?`<div class="card-date"><i class="ti ti-calendar" style="font-size:12px"></i>Iki ${fmtDate(item.warrantyEnd)}</div>`:''}
+          ${item.warrantyEnd?`<div class="card-date"><i class="ti ti-calendar" style="font-size:14px"></i>Iki ${fmtDate(item.warrantyEnd)}</div>`:''}
         </div>
       </button>
     </div>`;
@@ -651,12 +651,12 @@ function renderList(){
       <button id="catDropBtn" style="flex:1;background:none;border:1px solid var(--border2);border-radius:20px;padding:7px 14px;font-size:14px;font-weight:500;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;min-width:0">
         <i class="ti ti-filter" style="font-size:15px;flex-shrink:0"></i>
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${filterCat}</span>
-        <i class="ti ti-chevron-down" style="font-size:11px;flex-shrink:0"></i>
+        <i class="ti ti-chevron-down" style="font-size:15px;flex-shrink:0"></i>
       </button>
       <button id="sortDropBtn" style="flex:1;background:none;border:1px solid var(--border2);border-radius:20px;padding:7px 14px;font-size:14px;font-weight:500;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;min-width:0">
         <i class="ti ti-arrows-sort" style="font-size:15px;flex-shrink:0"></i>
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sortBy==='newest'?'Naujausi':sortBy==='expiring'?'Baigiasi':'A–Z'}</span>
-        <i class="ti ti-chevron-down" style="font-size:11px;flex-shrink:0"></i>
+        <i class="ti ti-chevron-down" style="font-size:15px;flex-shrink:0"></i>
       </button>
     </div>
     ${state.catDropOpen ? `<div id="catDropOverlay" style="position:fixed;inset:0;z-index:99"></div>
@@ -686,7 +686,7 @@ function renderSearch(){
       <div class="card-body">
         <div class="card-top"><span class="card-name">${esc(item.name)}</span>${badgeHtml(days)}</div>
         <div class="card-sub">${esc(item.shop||item.category)}</div>
-        ${item.docNumber?`<div class="card-date"><i class="ti ti-hash" style="font-size:12px"></i>${esc(item.docNumber)}</div>`:''}
+        ${item.docNumber?`<div class="card-date"><i class="ti ti-hash" style="font-size:14px"></i>${esc(item.docNumber)}</div>`:''}
       </div>
     </button>`;
   }).join('');
@@ -771,7 +771,7 @@ function renderAdd(){
         <input type="file" id="docInput" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" ${isPhoto?'capture="environment"':''} style="display:none" />
         ${f.docData?`<button class="doc-remove-btn" id="removeDoc"><i class="ti ti-trash" style="font-size:14px"></i>Pašalinti dokumentą</button>`:''}
         ${state.docError?`<p class="doc-error">${esc(state.docError)}</p>`:''}
-        ${state.analyzing?`<div class="analyzing-row"><div class="spinner"></div><span style="font-size:13px;color:var(--text2)">AI analizuoja dokumentą...</span></div>`:''}
+        ${state.analyzing?`<div class="analyzing-row"><div class="spinner"></div><span style="font-size:15px;color:var(--text2)">AI analizuoja dokumentą...</span></div>`:''}
       </div>
 
       <p class="form-label-section">Pagrindinė informacija</p>
@@ -798,7 +798,7 @@ function renderAdd(){
       <p class="form-label-section">Pastabos</p>
       <div class="form-section"><div class="form-row"><textarea id="f_notes" rows="3" placeholder="Papildoma informacija...">${esc(f.notes)}</textarea></div></div>
 
-      ${state.uploadPct!==null?`<div class="upload-progress-row"><div class="upload-progress-bar"><div class="upload-progress-fill" style="width:${state.uploadPct}%"></div></div><span style="font-size:12px;color:var(--text2)">${state.uploadPct}%</span></div>`:''}
+      ${state.uploadPct!==null?`<div class="upload-progress-row"><div class="upload-progress-bar"><div class="upload-progress-fill" style="width:${state.uploadPct}%"></div></div><span style="font-size:14px;color:var(--text2)">${state.uploadPct}%</span></div>`:''}
 
       <button class="save-btn" id="saveBtn" ${f.name.trim()&&state.uploadPct===null?'':'disabled'}>${state.uploadPct!==null?'Saugoma...':'Išsaugoti'}</button>
     </div>
@@ -837,7 +837,7 @@ function renderDetail(){
   ].map(r=>`<div class="detail-row"><i class="ti ${r.i}"></i><span class="dr-label">${esc(r.l)}</span><span class="dr-val">${esc(r.v)}</span></div>`).join('');
 
   const policySection = `<div class="detail-section">
-    ${state.policyChecking ? `<div class="analyzing-row" style="justify-content:center"><div class="spinner"></div><span style="font-size:13px;color:var(--text2)">AI tikrina gamintojo garantijos politiką...</span></div>`
+    ${state.policyChecking ? `<div class="analyzing-row" style="justify-content:center"><div class="spinner"></div><span style="font-size:15px;color:var(--text2)">AI tikrina gamintojo garantijos politiką...</span></div>`
       : state.policyResult && state.policyResultFor===item.id ? `<div class="plan-banner" style="background:var(--accent-bg);align-items:flex-start">
           <i class="ti ti-info-circle" style="color:var(--accent);margin-top:2px"></i>
           <div class="pb-text" style="color:var(--text)"><b style="color:var(--accent)">AI pasiūlymas (patikrinkite patys):</b><br/>${esc(state.policyResult)}</div>
@@ -888,7 +888,7 @@ function renderSettings(){
       <div class="settings-profile-info">
         <div class="settings-profile-email">${esc(u.displayName||u.email)}</div>
         <div class="settings-profile-plan${isPremium?' premium':''}">
-          ${state.userDoc?.role==='admin' ? '<i class="ti ti-shield-check" style="font-size:13px"></i> Administratorius' : state.userDoc?.plan==='tester' ? '<i class="ti ti-flask" style="font-size:13px"></i> Testeris' : state.userDoc?.plan==='friend' ? '<i class="ti ti-heart" style="font-size:13px"></i> Draugas' : isPremium ? '<i class="ti ti-crown" style="font-size:13px"></i> Premium narys' : `Nemokamas planas · ${state.items.length} įrašų`}
+          ${state.userDoc?.role==='admin' ? '<i class="ti ti-shield-check" style="font-size:15px"></i> Administratorius' : state.userDoc?.plan==='tester' ? '<i class="ti ti-flask" style="font-size:15px"></i> Testeris' : state.userDoc?.plan==='friend' ? '<i class="ti ti-heart" style="font-size:15px"></i> Draugas' : isPremium ? '<i class="ti ti-crown" style="font-size:15px"></i> Premium narys' : `Nemokamas planas · ${state.items.length} įrašų`}
         </div>
       </div>
     </div>
@@ -986,7 +986,7 @@ function renderSettings(){
       </button>
     </div>
 
-    <p style="text-align:center;font-size:11px;color:var(--text3);padding:0 16px 24px">Galio v1.0 · Duomenys saugomi debesyje</p>
+    <p style="text-align:center;font-size:15px;color:var(--text3);padding:0 16px 24px">Galio v1.0 · Duomenys saugomi debesyje</p>
   </div>`;
 }
 
@@ -1018,7 +1018,7 @@ function renderContact(){
       <div class="form-section" style="margin:0 0 20px;padding:12px 14px">
         <textarea id="contactMsg" rows="5" placeholder="Aprašykite problemą arba klausimą..." style="width:100%;background:none;border:none;outline:none;font-size:15px;color:var(--text1);resize:none;box-sizing:border-box">${state.contactDraft||''}</textarea>
       </div>
-      ${state.contactError ? `<p style="color:var(--red);font-size:13px;margin:0 0 12px">${state.contactError}</p>` : ''}
+      ${state.contactError ? `<p style="color:var(--red);font-size:15px;margin:0 0 12px">${state.contactError}</p>` : ''}
       <button id="contactSendBtn" class="btn-primary" style="width:100%" ${busy?'disabled':''}>
         ${busy ? '<span class="spinner" style="width:16px;height:16px;border-width:2px;margin:0 auto"></span>' : '<i class="ti ti-send"></i> Siųsti'}
       </button>
@@ -1062,11 +1062,11 @@ function renderAdminStats(){
           return `<div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:6px;padding:12px 14px">
             <div style="display:flex;width:100%;align-items:center;gap:6px">
               <div style="flex:1;min-width:0">
-                <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.email}</div>
-                <div style="font-size:11px;color:${planColor};margin-top:2px">${planLabel}${isAdminUser?' · Admin':''}${u.emailVerified?' · ✓':''} · ${u.itemCount||0} įrašų</div>
+                <div style="font-size:15px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.email}</div>
+                <div style="font-size:15px;color:${planColor};margin-top:2px">${planLabel}${isAdminUser?' · Admin':''}${u.emailVerified?' · ✓':''} · ${u.itemCount||0} įrašų</div>
               </div>
-              ${!isAdminUser ? `<button class="chip${isTester?' active':''}" data-uid="${u.uid}" data-action="toggleTester" style="font-size:11px;padding:3px 8px;flex-shrink:0">${isTester?'✓ Testeris':'Testeris'}</button>
-              <button class="chip${isFriend?' active':''}" data-uid="${u.uid}" data-action="toggleFriend" style="font-size:11px;padding:3px 8px;flex-shrink:0">${isFriend?'✓ Draugas':'Draugas'}</button>` : ''}
+              ${!isAdminUser ? `<button class="chip${isTester?' active':''}" data-uid="${u.uid}" data-action="toggleTester" style="font-size:15px;padding:3px 8px;flex-shrink:0">${isTester?'✓ Testeris':'Testeris'}</button>
+              <button class="chip${isFriend?' active':''}" data-uid="${u.uid}" data-action="toggleFriend" style="font-size:15px;padding:3px 8px;flex-shrink:0">${isFriend?'✓ Draugas':'Draugas'}</button>` : ''}
             </div>
           </div>`;
         }).join('')
