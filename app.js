@@ -170,6 +170,7 @@ async function ensureUserDoc(user){
     const initial = {
       email:user.email, plan:'free', itemCount:0, notifyEnabled:true,
       storageMode:'local', aiUsesRemaining: AI_FREE_USES,
+      emailVerified: user.emailVerified || false,
       createdAt: serverTimestamp(),
     };
     await setDoc(ref_, initial);
@@ -184,6 +185,11 @@ async function ensureUserDoc(user){
     if(state.userDoc.storageMode === undefined){
       try{ await updateDoc(ref_, { storageMode: 'local' }); }catch(e){}
       state.userDoc.storageMode = 'local';
+    }
+    // Atnaujinti emailVerified jei pasikeitė (pvz. vartotojas patvirtino paštą)
+    if(state.userDoc.emailVerified !== user.emailVerified){
+      try{ await updateDoc(ref_, { emailVerified: user.emailVerified || false }); }catch(e){}
+      state.userDoc.emailVerified = user.emailVerified || false;
     }
   }
   state.storageMode = state.userDoc.storageMode || 'local';
@@ -628,11 +634,11 @@ function renderList(){
     ${verifyBanner}
     ${planBanner}
     <div class="chips">${chips}</div>
-    <div style="padding:0 16px 10px;display:flex;gap:6px;align-items:center">
-      <span style="font-size:12px;color:var(--text3);margin-right:2px">Rikiuoti:</span>
-      <button class="sort-btn${sortBy==='newest'?' active':''}" data-sort="newest">Naujausi</button>
-      <button class="sort-btn${sortBy==='expiring'?' active':''}" data-sort="expiring">Baigiasi</button>
-      <button class="sort-btn${sortBy==='name'?' active':''}" data-sort="name">A–Z</button>
+    <div style="padding:0 16px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--text3);flex-shrink:0">Rikiuoti:</span>
+      <button class="chip${sortBy==='newest'?' active':''}" data-sort="newest">Naujausi</button>
+      <button class="chip${sortBy==='expiring'?' active':''}" data-sort="expiring">Baigiasi</button>
+      <button class="chip${sortBy==='name'?' active':''}" data-sort="name">A–Z</button>
     </div>
     <div class="cards">${emptyHtml}${cardsHtml}</div>
     <div style="height:8px"></div>
