@@ -859,27 +859,55 @@ function renderAdd(){
 
       <p class="form-label-section">Pagrindinė informacija</p>
       <div class="form-section">
-        <div class="form-row"><label>Prekės pavadinimas</label><input type="text" id="f_name" placeholder="Būtina" value="${esc(f.name)}" /></div>
-        <div class="form-row"><label>Parduotuvė</label><input type="text" id="f_shop" placeholder="Neprivaloma" value="${esc(f.shop)}" /></div>
-        <div class="form-row"><label>Kategorija</label><select id="f_category"><option value="" ${!f.category?'selected':''}>Pasirinkite...</option>${CATEGORIES.map(c=>`<option value="${esc(c)}"${c===f.category?' selected':''}>${esc(c)}</option>`).join('')}</select><i class="ti ti-chevron-right form-row-chevron"></i></div>
+        <div class="form-field">
+          <label>Prekės pavadinimas</label>
+          <input type="text" id="f_name" placeholder="pvz. Samsung TV 55&quot;" value="${esc(f.name)}" />
+        </div>
+        <div class="form-field">
+          <label>Parduotuvė</label>
+          <input type="text" id="f_shop" placeholder="pvz. Pigu, Euronics..." value="${esc(f.shop)}" />
+        </div>
+        <div class="form-field">
+          <label>Kategorija</label>
+          <select id="f_category">
+            <option value="" ${!f.category?'selected':''}>Pasirinkite...</option>
+            ${CATEGORIES.map(c=>`<option value="${esc(c)}"${c===f.category?' selected':''}>${esc(c)}</option>`).join('')}
+          </select>
+        </div>
       </div>
 
       <p class="form-label-section">Datos</p>
       <div class="form-section">
-        <div class="form-row"><label>Pirkimo data</label><input type="date" id="f_purchaseDate" value="${esc(f.purchaseDate)}" /></div>
-        <div class="form-row" id="warrantyBtn" style="cursor:pointer"><label>Garantija</label><span style="font-size:15px;color:var(--text2)">${esc(selOpt.l)}</span><i class="ti ti-chevron-right form-row-chevron"></i></div>
-        ${f.warrantyMonths===null?`<div class="form-row"><label>Galioja iki</label><input type="date" id="f_warrantyEnd" value="${esc(f.warrantyEnd)}" /></div>`:''}
-        ${f.purchaseDate?`<div class="form-row"><label>14 d. grąžinimas iki</label><span style="font-size:15px;color:var(--text2)">${fmtDate(addDays(f.purchaseDate,14))}</span></div>`:''}
+        <div class="form-field">
+          <label>Pirkimo data</label>
+          <input type="date" id="f_purchaseDate" value="${esc(f.purchaseDate)}" />
+        </div>
+        <div class="form-field-row form-field" id="warrantyBtn" style="cursor:pointer;flex-direction:row">
+          <label>Garantija</label>
+          <span class="fv${!f.warrantyMonths&&f.warrantyMonths!==0?' fv-placeholder':''}">${esc(selOpt.l)}<i class="ti ti-chevron-right" style="font-size:14px;color:var(--text3)"></i></span>
+        </div>
+        ${f.warrantyMonths===null?`<div class="form-field"><label>Galioja iki</label><input type="date" id="f_warrantyEnd" value="${esc(f.warrantyEnd)}" /></div>`:''}
+        ${f.purchaseDate?`<div class="form-field"><label>14 d. grąžinimas iki</label><span style="font-size:16px;color:var(--text2)">${fmtDate(addDays(f.purchaseDate,14))}</span></div>`:''}
       </div>
 
       <p class="form-label-section">Dokumentas</p>
       <div class="form-section">
-        <div class="form-row"><label>Tipas</label><select id="f_docType">${DOC_TYPES.map(d=>`<option${d===f.docType?' selected':''}>${esc(d)}</option>`).join('')}</select><i class="ti ti-chevron-right form-row-chevron"></i></div>
-        <div class="form-row"><label>Numeris</label><input type="text" id="f_docNumber" placeholder="pvz. SF-2025-001" value="${esc(f.docNumber)}" /></div>
+        <div class="form-field">
+          <label>Tipo</label>
+          <select id="f_docType">${DOC_TYPES.map(d=>`<option${d===f.docType?' selected':''}>${esc(d)}</option>`).join('')}</select>
+        </div>
+        <div class="form-field">
+          <label>Numeris</label>
+          <input type="text" id="f_docNumber" placeholder="pvz. SF-2025-001" value="${esc(f.docNumber)}" />
+        </div>
       </div>
 
       <p class="form-label-section">Pastabos</p>
-      <div class="form-section"><div class="form-row"><textarea id="f_notes" rows="3" placeholder="Papildoma informacija...">${esc(f.notes)}</textarea></div></div>
+      <div class="form-section">
+        <div class="form-field">
+          <textarea id="f_notes" rows="3" placeholder="Papildoma informacija...">${esc(f.notes)}</textarea>
+        </div>
+      </div>
 
       ${state.uploadPct!==null?`<div class="upload-progress-row"><div class="upload-progress-bar"><div class="upload-progress-fill" style="width:${state.uploadPct}%"></div></div><span style="font-size:14px;color:var(--text2)">${state.uploadPct}%</span></div>`:''}
 
