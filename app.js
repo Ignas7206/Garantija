@@ -49,6 +49,7 @@ let state = {
   aiMultiItems: [],
   multiItemReceipt: null,
   multiEditIdx: null,
+  editItemId: null,
   adminStats: null,
   storageMode: 'local', // 'local' | 'cloud' — driven by userDoc.storageMode once loaded
   migratingStorage: false, // true while toggleStorageMode() is mid-flight; suppresses auto-reattach
@@ -515,9 +516,8 @@ function _doRender(){
   const addCircle = document.querySelector('.nav-add-circle');
   if(addCircle){
     addCircle.classList.toggle('pulse', state.addPulse && state.view==='list');
-    const hasItems = state.items.length > 0;
-    addCircle.style.background = hasItems ? 'var(--bg3)' : 'var(--accent)';
-    addCircle.querySelector('i').style.color = hasItems ? 'var(--text2)' : '#fff';
+    addCircle.style.background = 'var(--accent)';
+    addCircle.querySelector('i').style.color = '#fff';
   }
   attachEvents();
 }
@@ -974,7 +974,7 @@ function renderDetail(){
     <div class="page-header-sm">
       <button class="back-btn" id="backBtn"><i class="ti ti-arrow-left"></i></button>
       <h2>${esc(item.name)}</h2>
-      <button class="icon-btn" id="deleteBtn" style="color:var(--red)"><i class="ti ti-trash" style="font-size:18px"></i></button>
+      <button class="icon-btn" id="editItemBtn" style="color:var(--accent)"><i class="ti ti-pencil" style="font-size:18px"></i></button>
     </div>
     <div class="detail-status" style="background:${sc}">
       <i class="ti ${si}" style="font-size:36px;color:${textColor}"></i>
@@ -1180,25 +1180,20 @@ function renderMultiSelect(){
   }).join('');
 
   return `<div style="display:flex;flex-direction:column;height:100vh;overflow:hidden">
-    <div style="padding:12px 16px 10px;border-bottom:0.5px solid var(--border);background:var(--bg)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <div>
-          <div style="font-size:13px;font-weight:600;color:var(--text)">${esc(r.shop||'')}</div>
-          <div style="font-size:12px;color:var(--text3)">${r.purchaseDate?fmtDate(r.purchaseDate):''}</div>
-        </div>
-        <button id="multiSaveBtn" ${selectedCount===0?'disabled':''} style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:8px 18px;font-size:14px;font-weight:600;cursor:pointer;opacity:${selectedCount===0?'0.4':'1'};transition:opacity 0.15s">
-          Išsaugoti${selectedCount>0?` (${selectedCount})`:''}
-        </button>
-      </div>
-      <p style="font-size:13px;color:var(--text3);margin:0;line-height:1.4">Pasirinkite ką išsaugoti.</p>
+    <div style="padding:12px 16px 10px;border-bottom:0.5px solid var(--border);background:var(--bg);text-align:center">
+      <div style="font-size:14px;font-weight:600;color:var(--text)">${esc(r.shop||'')}</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:2px">${r.purchaseDate?fmtDate(r.purchaseDate):''} · Pasirinkite ką išsaugoti</div>
     </div>
-    <div style="flex:1;overflow-y:auto">
+    <div style="flex:1;overflow-y:auto;padding-bottom:80px">
       <div style="background:var(--card);border-radius:var(--radius);margin:12px 16px;overflow:hidden">
         ${rows}
       </div>
     </div>
-    <div style="padding:12px 16px;border-top:0.5px solid var(--border)">
-      <button id="multiCancelBtn" style="background:none;border:none;color:var(--text3);font-size:14px;width:100%;padding:8px;cursor:pointer">Atšaukti</button>
+    <div style="position:fixed;bottom:65px;left:0;right:0;padding:10px 16px;background:var(--bg);border-top:0.5px solid var(--border);z-index:50;display:flex;gap:10px;align-items:center">
+      <button id="multiCancelBtn" style="background:none;border:1px solid var(--border2);color:var(--text3);font-size:14px;padding:10px 16px;border-radius:12px;cursor:pointer;flex-shrink:0">Atšaukti</button>
+      <button id="multiSaveBtn" ${selectedCount===0?'disabled':''} class="save-btn" style="flex:1;opacity:${selectedCount===0?'0.4':'1'}">
+        Išsaugoti${selectedCount>0?` (${selectedCount})`:''}
+      </button>
     </div>
   </div>`;
 }
@@ -1354,8 +1349,9 @@ function attachEvents(){
 
   on('backBtn','click',()=>{
     if(state.view==='add' && state.multiEditIdx!=null){
-      // Grįžtame į multi-select sąrašą
       state.view='multi-select'; state.addMode=null; state.multiEditIdx=null; render();
+    } else if(state.view==='add' && state.editItemId){
+      state.editItemId=null; state.addMode=null; state.view='detail'; render();
     } else if(state.view==='add'&&state.addMode){
       state.addMode=null;render();
     } else {
@@ -1399,6 +1395,8 @@ function attachEvents(){
       }
       state.view='multi-select'; state.addMode=null; state.multiEditIdx=null;
       render();
+    } else if(state.editItemId){
+      updateItem();
     } else {
       saveItem();
     }
@@ -1412,6 +1410,32 @@ function attachEvents(){
     // original scan, we're just stepping to the next product from it.
     state.pendingAiCharge = false;
     applyAiItemToForm(next, {shop: next._shop, purchaseDate: next._purchaseDate, docType: next._docType, docNumber: next._docNumber});
+    render();
+  });
+  on('editItemBtn','click',()=>{
+    const item = state.items.find(i=>i.id===state.selected);
+    if(!item) return;
+    state.form = {
+      name: item.name||'',
+      category: item.category||'',
+      shop: item.shop||'',
+      purchaseDate: item.purchaseDate||'',
+      warrantyEnd: item.warrantyEnd||'',
+      warrantyMonths: item.warrantyMonths??24,
+      docType: item.docType||'Kvitas / čekis',
+      docNumber: item.docNumber||'',
+      notes: item.notes||'',
+      docData: item.docUrl||null,
+      docMime: item.docMime||null,
+      docFileName: item.docFileName||null,
+      docStoragePath: item.docStoragePath||null,
+      notifyEnabled: item.notifyEnabled!==false,
+      warrantyAppliesWarning: false,
+      qualityWarning: null,
+    };
+    state.editItemId = item.id;
+    state.addMode = 'manual';
+    state.view = 'add';
     render();
   });
   on('deleteBtn','click',()=>deleteItem(state.selected));
@@ -1578,6 +1602,43 @@ async function deleteItem(id){
   state.view='list';render();
 }
 
+async function updateItem(){
+  if(!state.editItemId||!state.form.name.trim()) return;
+  const f = state.form;
+  const isCloud = state.storageMode==='cloud';
+  const payload = {
+    name: f.name.trim().slice(0,200),
+    category: f.category||'Kita',
+    shop: f.shop.slice(0,100),
+    purchaseDate: f.purchaseDate||'',
+    warrantyEnd: f.warrantyEnd||'',
+    warrantyMonths: f.warrantyMonths??null,
+    docType: f.docType||'Kvitas / čekis',
+    docNumber: f.docNumber.slice(0,100),
+    notes: f.notes.slice(0,1000),
+    notifyEnabled: f.notifyEnabled!==false,
+    returnDeadline: f.purchaseDate ? addDays(f.purchaseDate,14) : null,
+    ...(f.docData ? {docUrl:f.docData, docMime:f.docMime, docFileName:f.docFileName} : {}),
+  };
+
+  try{
+    if(isCloud){
+      await updateDoc(doc(db,'users',state.user.uid,'warranties',state.editItemId), payload);
+    }else{
+      const existing = state.items.find(i=>i.id===state.editItemId);
+      const updated = {...existing, ...payload};
+      await localPut(state.user.uid, updated);
+      const idx = state.items.findIndex(i=>i.id===state.editItemId);
+      if(idx>=0) state.items[idx]=updated;
+    }
+    toast('Išsaugota ✓');
+    state.editItemId=null; state.addMode=null; state.view='detail';
+    render();
+  }catch(e){
+    toast('Klaida išsaugant: '+(e.message||''));
+  }
+}
+
 async function saveItem(){
   if(!state.form.name.trim())return;
   const f=state.form;
@@ -1723,9 +1784,9 @@ async function saveMultiItems(){
       }else{
         const localItem={
           ...payload, id:genLocalId(),
-          docUrl: saved===0 ? (r.docData||null) : null,
-          docMime: saved===0 ? (r.docMime||null) : null,
-          docFileName: saved===0 ? (r.docFileName||null) : null,
+          docUrl: r.docData||null,
+          docMime: r.docMime||null,
+          docFileName: r.docFileName||null,
         };
         await localPut(state.user.uid,localItem);
         state.items.unshift(localItem);
