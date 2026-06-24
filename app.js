@@ -1027,12 +1027,12 @@ function renderSettings(){
     <div class="form-section" style="margin:0 16px 8px">
       <div class="settings-row">
         <i class="ti ti-${isCloud?'cloud':'device-mobile'} row-icon"></i>
-        <div class="settings-row-label">${isCloud?'Paskyros saugykla':'Įrenginio saugykla'}<small>${isCloud?'Sinchronizuojama su paskyra, prieinama iš bet kur':'Saugoma tik šiame telefone, nemokama'}</small></div>
-        <button class="toggle-switch${isCloud?' on':''}" id="storageModeToggle"><div class="knob"></div></button>
+        <div class="settings-row-label">${isCloud?'Paskyros saugykla':'Įrenginio saugykla'}<small>${isCloud?'Sinchronizuojama su paskyra':'Saugoma tik šiame telefone'}</small></div>
+        ${isPremium || isCloud ? `<button class="toggle-switch${isCloud?' on':''}" id="storageModeToggle"><div class="knob"></div></button>` : ''}
       </div>
     </div>
-    <p style="font-size:11.5px;color:var(--text3);padding:0 16px 20px;line-height:1.5">
-      ${isCloud?'Paskyros saugykla prieinama Premium nariams. Jei keičiate planą, pirmiausia perkelkite duomenis į įrenginį.':'Norėdami pasiekti duomenis iš kitų įrenginių, įjunkite paskyros saugyklą (reikalinga Premium prenumerata).'}
+    <p style="font-size:13px;color:var(--text3);padding:0 16px 20px;line-height:1.5">
+      ${isCloud?'Įrašai sinchronizuojami su paskyra ir pasiekiami iš bet kurio įrenginio.':isPremium?'Įjunkite paskyros saugyklą, kad pasiektumėte įrašus iš kitų įrenginių.':'Įrašai saugomi šiame telefone. Paskyros saugykla prieinama Premium nariams.'}
     </p>
 
     <p class="form-label-section" style="margin:0 16px 8px">AI analizė</p>

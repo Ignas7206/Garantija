@@ -1,4 +1,4 @@
-const CACHE = 'galio-v1';
+const CACHE = 'galio-v2';
 const BASE = '/Galio';
 const ASSETS = [
   BASE + '/',
