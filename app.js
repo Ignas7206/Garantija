@@ -50,6 +50,10 @@ let state = {
   multiItemReceipt: null,
   multiEditIdx: null,
   editItemId: null,
+  notifModal: null,
+  _lastNotifDays: null,
+  _lastReturnNotifDays: null,
+  _lastSavedId: null,
   adminStats: null,
   storageMode: 'local', // 'local' | 'cloud' — driven by userDoc.storageMode once loaded
   migratingStorage: false, // true while toggleStorageMode() is mid-flight; suppresses auto-reattach
@@ -510,7 +514,7 @@ function _doRender(){
   pushHistoryIfNeeded(viewKey);
 
   const syncPill = `<div class="sync-pill${state.online?'':' offline'}"><span class="dot"></span>${state.online?'Sinchronizuota':'Be interneto · veikia lokaliai'}</div>`;
-  scr.innerHTML = (state.online?'':syncPill) + html;
+  scr.innerHTML = (state.online?'':syncPill) + html + (state.notifModal ? renderNotifModal() : '');
 
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===state.view));
   const addCircle = document.querySelector('.nav-add-circle');
@@ -1115,6 +1119,87 @@ function renderSettings(){
   </div>`;
 }
 
+// ── Notification modal ─────────────────────────────────────────────────────
+
+// Siūlomi priminimai pagal garantijos ilgį
+function suggestNotifDays(warrantyMonths, hasReturn){
+  const days = [];
+  if(warrantyMonths){
+    if(warrantyMonths <= 1)       days.push(3, 1);
+    else if(warrantyMonths <= 6)  days.push(14, 7, 1);
+    else if(warrantyMonths <= 12) days.push(30, 7, 1);
+    else                          days.push(60, 30, 7, 1);
+  }
+  return days;
+}
+
+function showNotifModal(itemId){
+  if(!itemId){ state.view='list'; render(); return; }
+  const item = state.items.find(i=>i.id===itemId) ||
+               { id:itemId, warrantyMonths:state._lastWarrantyMonths, warrantyEnd:state._lastWarrantyEnd, returnDeadline:state._lastReturnDeadline };
+
+  const suggested = suggestNotifDays(item?.warrantyMonths, !!item?.returnDeadline);
+  // Naudoti paskutinius nustatymus jei yra, kitaip siūlomus
+  const defaults = state._lastNotifDays || suggested;
+
+  state.notifModal = {
+    itemId,
+    selectedDays: [...defaults],
+    returnSelectedDays: item?.returnDeadline ? (state._lastReturnNotifDays || [3]) : [],
+    hasReturn: !!item?.returnDeadline,
+    repeatEnabled: false,
+    repeatInterval: 7,
+    item,
+  };
+  state.view='list';
+  render();
+}
+
+function renderNotifModal(){
+  const m = state.notifModal;
+  if(!m) return '';
+  const DAY_OPTS = [1,3,7,14,30,60];
+  const sel = new Set(m.selectedDays);
+  const retSel = new Set(m.returnSelectedDays);
+
+  return `<div style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:200;display:flex;align-items:flex-end">
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;padding:20px 20px 40px;max-height:85vh;overflow-y:auto">
+      <div style="width:36px;height:4px;background:var(--border2);border-radius:2px;margin:0 auto 20px"></div>
+      <h3 style="font-size:18px;font-weight:700;margin:0 0 6px">Priminimai</h3>
+      <p style="font-size:14px;color:var(--text3);margin:0 0 20px">Priminsime prieš garantijos pabaigą.</p>
+
+      ${m.item?.warrantyEnd ? `
+      <p style="font-size:13px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px">Prieš garantijos pabaigą</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px">
+        ${DAY_OPTS.map(d=>`
+          <button class="notif-day-btn${sel.has(d)?' active':''}" data-day="${d}" style="padding:8px 14px;border-radius:20px;border:1.5px solid ${sel.has(d)?'var(--accent)':'var(--border2)'};background:${sel.has(d)?'var(--accent)':'transparent'};color:${sel.has(d)?'#fff':'var(--text2)'};font-size:14px;font-weight:500;cursor:pointer">
+            ${d===1?'1 dieną':d===7?'1 savaitę':d===30?'1 mėnesį':d===60?'2 mėnesius':d+' d.'}
+          </button>`).join('')}
+      </div>` : ''}
+
+      ${m.hasReturn ? `
+      <p style="font-size:13px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px">Prieš grąžinimo terminą</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px">
+        ${[1,2,3,5,7].map(d=>`
+          <button class="notif-ret-btn${retSel.has(d)?' active':''}" data-day="${d}" style="padding:8px 14px;border-radius:20px;border:1.5px solid ${retSel.has(d)?'var(--accent)':'var(--border2)'};background:${retSel.has(d)?'var(--accent)':'transparent'};color:${retSel.has(d)?'#fff':'var(--text2)'};font-size:14px;font-weight:500;cursor:pointer">
+            ${d===1?'1 dieną':d===7?'1 savaitę':d+' d.'}
+          </button>`).join('')}
+      </div>` : ''}
+
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-top:0.5px solid var(--border);margin-bottom:20px">
+        <div>
+          <div style="font-size:15px;font-weight:500">Kartoti kas savaitę</div>
+          <div style="font-size:13px;color:var(--text3)">Nuo 30 dienų iki pabaigos</div>
+        </div>
+        <button class="toggle-switch${m.repeatEnabled?' on':''}" id="notifRepeatToggle"><div class="knob"></div></button>
+      </div>
+
+      <button id="notifSaveBtn" class="save-btn" style="margin-bottom:10px">Įjungti priminimus</button>
+      <button id="notifSkipBtn" style="background:none;border:none;color:var(--text3);font-size:14px;width:100%;padding:10px;cursor:pointer">Praleisti</button>
+    </div>
+  </div>`;
+}
+
 // ── Contact form ────────────────────────────────────────────────────────────
 function renderContact(){
   const busy = state.contactBusy;
@@ -1498,6 +1583,25 @@ function attachEvents(){
     if(state.multiItemReceipt) state.multiItemReceipt.items[idx].category=e.target.value;
   });
   on('multiSaveBtn','click', saveMultiItems);
+  on('notifSkipBtn','click',()=>{ state.notifModal=null; render(); });
+  on('notifRepeatToggle','click',()=>{ if(state.notifModal) state.notifModal.repeatEnabled=!state.notifModal.repeatEnabled; render(); });
+  on('notifSaveBtn','click', saveNotifSettings);
+  onAll('.notif-day-btn','click',e=>{
+    const d=parseInt(e.currentTarget.dataset.day);
+    if(!state.notifModal) return;
+    const s=state.notifModal.selectedDays;
+    const idx=s.indexOf(d);
+    if(idx>=0) s.splice(idx,1); else s.push(d);
+    render();
+  });
+  onAll('.notif-ret-btn','click',e=>{
+    const d=parseInt(e.currentTarget.dataset.day);
+    if(!state.notifModal) return;
+    const s=state.notifModal.returnSelectedDays;
+    const idx=s.indexOf(d);
+    if(idx>=0) s.splice(idx,1); else s.push(d);
+    render();
+  });
   on('adminPanelBtn','click',()=>{state.view='admin-stats';startViewWatchdog('admin-stats');loadAdminStats();});
   on('helpContactBtn','click',()=>{
     state.contactSent=false; state.contactError=''; state.contactDraft='';
@@ -1602,7 +1706,69 @@ async function deleteItem(id){
   state.view='list';render();
 }
 
-async function updateItem(){
+async function saveNotifSettings(){
+  const m = state.notifModal;
+  if(!m) return;
+
+  // Išsaugoti kaip naujus defaults
+  state._lastNotifDays = [...m.selectedDays];
+  state._lastReturnNotifDays = [...m.returnSelectedDays];
+
+  const notifData = {
+    notifyEnabled: true,
+    notifyDays: m.selectedDays,
+    notifyReturnDays: m.returnSelectedDays,
+    notifyRepeatDays: m.repeatEnabled ? { interval: m.repeatInterval, startDay: 30 } : null,
+  };
+
+  try{
+    // Prašyti push leidimo
+    const perm = await requestPushPermission();
+    if(perm){
+      notifData.fcmTokenUpdated = true;
+    }
+
+    // Išsaugoti į Firestore arba IndexedDB
+    if(state.storageMode==='cloud'){
+      await updateDoc(doc(db,'users',state.user.uid,'warranties',m.itemId), notifData);
+    }else{
+      const item = state.items.find(i=>i.id===m.itemId);
+      if(item){
+        Object.assign(item, notifData);
+        await localPut(state.user.uid, item);
+      }
+    }
+    toast('Priminimai įjungti ✓');
+  }catch(e){
+    console.warn('Notif save error:', e);
+    toast('Nepavyko įjungti priminimų');
+  }
+
+  state.notifModal = null;
+  render();
+}
+
+async function requestPushPermission(){
+  try{
+    const perm = await Notification.requestPermission();
+    if(perm !== 'granted') return false;
+
+    // Gauti FCM token
+    const { messaging, getToken, VAPID_KEY } = await import('./firebase-config.js');
+    const token = await getToken(messaging, {
+      vapidKey: VAPID_KEY,
+      serviceWorkerRegistration: await navigator.serviceWorker.ready,
+    });
+    if(!token) return false;
+
+    // Išsaugoti token Firestore'e
+    await updateDoc(doc(db,'users',state.user.uid), { fcmToken: token, notifyEnabled: true });
+    return true;
+  }catch(e){
+    console.warn('Push permission error:', e);
+    return false;
+  }
+}
   if(!state.editItemId||!state.form.name.trim()) return;
   const f = state.form;
   const isCloud = state.storageMode==='cloud';
@@ -1682,6 +1848,7 @@ async function saveItem(){
     if(isCloud){
       const fullPayload = { ...payload, createdAt: serverTimestamp() };
       const docRef = await addDoc(collection(db,'users',state.user.uid,'warranties'), fullPayload);
+      state._lastSavedId = docRef.id;
       await updateDoc(doc(db,'users',state.user.uid),{itemCount:increment(1)});
 
       if(f.docData && f.docMime){
@@ -1708,12 +1875,13 @@ async function saveItem(){
       const localItem = {
         ...payload,
         id: genLocalId(),
-        docUrl: f.docData || null, // for local mode we just reuse the data URL directly as "docUrl"
+        docUrl: f.docData || null,
         docMime: f.docMime || null,
         docFileName: f.docFileName || null,
       };
       await localPut(state.user.uid, localItem);
       state.items.unshift(localItem);
+      state._lastSavedId = localItem.id;
     }
 
     toast('Išsaugota ✓');
@@ -1722,8 +1890,12 @@ async function saveItem(){
   }
 
   state.uploadPct=null;
-  state.form=emptyForm();state.docError='';state.addMode=null;state.view='list';
-  render();
+  state.form=emptyForm();state.docError='';state.addMode=null;
+
+  // Rodyti notifikacijų nustatymų modalą po išsaugojimo
+  const lastSavedItem = state.items[0] || state.storageMode==='cloud' ? null : state.items[0];
+  showNotifModal(state._lastSavedId);
+  state._lastSavedId = null;
 }
 
 async function saveMultiItems(){
